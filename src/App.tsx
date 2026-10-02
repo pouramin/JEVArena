@@ -11,13 +11,9 @@ import {
   type Provider,
   type Tier
 } from "./data/models";
-import {
-  analyzePrompt,
-  makeRunPlan,
-  type RunPlan
-} from "./lib/simulator";
+import { makeRunPlan, type RunPlan } from "./lib/simulator";
 
-type Phase = "idle" | "running" | "done";
+type Phase = "idle" | "countdown" | "running" | "done";
 type Expectation = "Auto" | "Easy" | "Medium" | "Hard";
 
 const DEFAULT_PROMPT =
@@ -60,6 +56,12 @@ function formatTokens(value: number) {
   return String(value);
 }
 
+function deltaWinner(delta: number) {
+  if (delta > 0.2) return "JEV Route";
+  if (delta < -0.2) return "Direct";
+  return "Tie";
+}
+
 function IconMark({ label }: { label: string }) {
   return (
     <span className="icon-mark" aria-hidden="true">
@@ -71,14 +73,16 @@ function IconMark({ label }: { label: string }) {
 function Metric({
   label,
   value,
-  sub
+  sub,
+  accent
 }: {
   label: string;
   value: string;
   sub?: string;
+  accent?: "jev" | "direct";
 }) {
   return (
-    <div className="metric">
+    <div className={"metric" + (accent ? " metric-" + accent : "")}>
       <span className="metric-label">{label}</span>
       <strong className="metric-value">{value}</strong>
       {sub ? <span className="metric-sub">{sub}</span> : null}
@@ -151,6 +155,7 @@ function Timeline({
             (nextIndex === -1
               ? events.length - 1
               : Math.max(0, nextIndex - 1));
+
         return (
           <div
             className={
@@ -205,6 +210,7 @@ export default function App() {
   const [modelId, setModelId] = useState("claude-opus-5-5");
   const [expectation, setExpectation] = useState<Expectation>("Auto");
   const [phase, setPhase] = useState<Phase>("idle");
+  const [countdown, setCountdown] = useState(3);
   const [elapsed, setElapsed] = useState(0);
   const [runCount, setRunCount] = useState(0);
   const [presentation, setPresentation] = useState(false);
@@ -216,7 +222,20 @@ export default function App() {
     [prompt, directModel]
   );
   const livePlan = currentPlan ?? previewPlan;
-  const previewAnalysis = useMemo(() => analyzePrompt(prompt), [prompt]);
+
+  useEffect(() => {
+    if (phase !== "countdown") return;
+
+    const timer = window.setTimeout(() => {
+      if (countdown > 0) {
+        setCountdown((value) => value - 1);
+      } else {
+        setPhase("running");
+      }
+    }, countdown === 0 ? 420 : 620);
+
+    return () => window.clearTimeout(timer);
+  }, [phase, countdown]);
 
   useEffect(() => {
     if (phase !== "running" || !currentPlan) return;
@@ -242,34 +261,55 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [phase, currentPlan]);
 
-  const isLocked = phase === "running";
-  const routeProgress = Math.min(elapsed / livePlan.route.totalSeconds, 1);
-  const directProgress = Math.min(elapsed / livePlan.direct.totalSeconds, 1);
+  const isLocked = phase === "countdown" || phase === "running";
+  const isRaceActive = phase === "countdown" || phase === "running";
+
+  const routeProgress =
+    phase === "running" || phase === "done"
+      ? Math.min(elapsed / livePlan.route.totalSeconds, 1)
+      : 0;
+
+  const directProgress =
+    phase === "running" || phase === "done"
+      ? Math.min(elapsed / livePlan.direct.totalSeconds, 1)
+      : 0;
 
   const decisionVisible =
     phase === "done" ||
     (phase === "running" && elapsed >= livePlan.route.decisionSeconds);
+
   const routeDone =
-    phase === "done" || elapsed >= livePlan.route.totalSeconds;
+    phase === "done" ||
+    (phase === "running" && elapsed >= livePlan.route.totalSeconds);
+
   const directDone =
-    phase === "done" || elapsed >= livePlan.direct.totalSeconds;
+    phase === "done" ||
+    (phase === "running" && elapsed >= livePlan.direct.totalSeconds);
 
   const routeCost =
-    phase === "idle" ? 0 : livePlan.route.totalCost * routeProgress;
+    phase === "idle" || phase === "countdown"
+      ? 0
+      : livePlan.route.totalCost * routeProgress;
+
   const directCost =
-    phase === "idle" ? 0 : livePlan.direct.totalCost * directProgress;
+    phase === "idle" || phase === "countdown"
+      ? 0
+      : livePlan.direct.totalCost * directProgress;
 
   const run = () => {
-    if (!prompt.trim() || phase === "running") return;
+    if (!prompt.trim() || isLocked) return;
+
     const plan = makeRunPlan(prompt, directModel);
     setCurrentPlan(plan);
     setElapsed(0);
+    setCountdown(3);
     setRunCount((count) => count + 1);
-    setPhase("running");
+    setPhase("countdown");
   };
 
   const reset = () => {
     setPhase("idle");
+    setCountdown(3);
     setElapsed(0);
     setCurrentPlan(null);
   };
@@ -287,6 +327,7 @@ export default function App() {
   const togglePresentation = async () => {
     const next = !presentation;
     setPresentation(next);
+
     try {
       if (next && !document.fullscreenElement) {
         await document.documentElement.requestFullscreen();
@@ -302,10 +343,25 @@ export default function App() {
     ((livePlan.direct.totalCost - livePlan.route.totalCost) /
       livePlan.direct.totalCost) *
     100;
+
   const timeSaving =
     ((livePlan.direct.totalSeconds - livePlan.route.totalSeconds) /
       livePlan.direct.totalSeconds) *
     100;
+
+  const sameModel = livePlan.route.model.id === livePlan.direct.model.id;
+
+  const verdictHeadline = sameModel
+    ? "Same model. JEV added only routing overhead."
+    : routeSaving > 0.2
+      ? "JEV routing used less money on this task."
+      : routeSaving < -0.2
+        ? "The direct path used less money on this task."
+        : "Cost was effectively tied on this task.";
+
+  const confidenceStyle = {
+    "--confidence": livePlan.route.analysis.confidence + "%"
+  } as CSSProperties;
 
   return (
     <main className={"app-shell" + (presentation ? " presentation" : "")}>
@@ -357,10 +413,27 @@ export default function App() {
         </p>
       </section>
 
-      <section className="arena-grid">
+      <section
+        className={
+          "arena-grid" +
+          (isRaceActive ? " race-active" : "") +
+          (phase === "done" ? " race-complete" : "")
+        }
+      >
+        {phase === "countdown" ? (
+          <div className="countdown-overlay" aria-live="assertive">
+            <div className="countdown-core">
+              <span>{countdown === 0 ? "GO" : countdown}</span>
+              <small>Same prompt. Both paths.</small>
+            </div>
+          </div>
+        ) : null}
+
         <article
           className={
-            "lane-card jev-lane" + (phase === "running" ? " is-running" : "")
+            "lane-card jev-lane" +
+            (phase === "running" ? " is-running" : "") +
+            (routeDone ? " is-done" : "")
           }
         >
           <div className="lane-head">
@@ -372,21 +445,35 @@ export default function App() {
               </div>
             </div>
             <span className="status-pill status-jev">
-              {phase === "idle" ? "READY" : routeDone ? "DONE" : "LIVE"}
+              {phase === "idle"
+                ? "READY"
+                : phase === "countdown"
+                  ? "ARMED"
+                  : routeDone
+                    ? "DONE"
+                    : "LIVE"}
             </span>
           </div>
 
           <div className="route-stage">
-            {phase === "idle" ? (
+            {phase === "idle" || phase === "countdown" ? (
               <div className="decision-idle">
-                <div className="decision-orb">
+                <div
+                  className={
+                    "decision-orb" + (phase === "countdown" ? " armed" : "")
+                  }
+                >
                   <span />
                   <b>JEV</b>
                 </div>
-                <p>Waiting for the same prompt.</p>
+                <p>
+                  {phase === "countdown"
+                    ? "Prompt locked. Waiting for the start."
+                    : "Decision hidden until the race starts."}
+                </p>
                 <small>
-                  The router will classify task complexity and choose an
-                  Anthropic model tier.
+                  JEV will classify the task and reveal the selected model only
+                  after launch.
                 </small>
               </div>
             ) : !decisionVisible ? (
@@ -405,7 +492,7 @@ export default function App() {
                     <span className="micro-label">JEV DECISION</span>
                     <strong>{livePlan.route.analysis.complexity}</strong>
                   </div>
-                  <div className="confidence-ring">
+                  <div className="confidence-ring" style={confidenceStyle}>
                     <strong>{livePlan.route.analysis.confidence}%</strong>
                     <span>confidence</span>
                   </div>
@@ -447,7 +534,7 @@ export default function App() {
             <Metric
               label="TIME"
               value={formatTime(
-                phase === "idle"
+                phase === "idle" || phase === "countdown"
                   ? 0
                   : Math.min(elapsed, livePlan.route.totalSeconds)
               )}
@@ -456,6 +543,7 @@ export default function App() {
                   ? formatTime(livePlan.route.decisionSeconds) + " JEV"
                   : "decision + model"
               }
+              accent="jev"
             />
             <Metric
               label="COST"
@@ -463,14 +551,15 @@ export default function App() {
               sub={
                 decisionVisible
                   ? formatMoney(livePlan.route.jevCost) + " JEV"
-                  : "live estimate"
+                  : "route total"
               }
+              accent="jev"
             />
           </div>
 
           <Timeline
             kind="route"
-            elapsed={elapsed}
+            elapsed={phase === "running" || phase === "done" ? elapsed : 0}
             plan={livePlan}
             done={routeDone}
           />
@@ -482,6 +571,23 @@ export default function App() {
         </article>
 
         <article className="prompt-card">
+          <div
+            className={
+              "flow-port flow-port-left" + (isRaceActive ? " active" : "")
+            }
+            aria-hidden="true"
+          >
+            <span />
+          </div>
+          <div
+            className={
+              "flow-port flow-port-right" + (isRaceActive ? " active" : "")
+            }
+            aria-hidden="true"
+          >
+            <span />
+          </div>
+
           <div className="prompt-head">
             <div>
               <span className="lane-kicker">CONTROL</span>
@@ -559,8 +665,10 @@ export default function App() {
 
           <div className="preflight">
             <div className="preflight-row">
-              <span>JEV preview</span>
-              <strong>{previewAnalysis.complexity}</strong>
+              <span>JEV decision</span>
+              <strong className="hidden-decision">
+                {phase === "idle" ? "Hidden until run" : "Locked"}
+              </strong>
             </div>
             <div className="preflight-row">
               <span>Route pool</span>
@@ -573,32 +681,48 @@ export default function App() {
           </div>
 
           <button
-            className={"run-button" + (isLocked ? " running" : "")}
+            className={
+              "run-button" +
+              (phase === "countdown" || phase === "running" ? " running" : "")
+            }
             type="button"
             disabled={!prompt.trim() || isLocked}
             onClick={run}
           >
-            <span className="run-icon">{isLocked ? "●" : "▶"}</span>
+            <span className="run-icon">
+              {phase === "countdown"
+                ? countdown || "GO"
+                : phase === "running"
+                  ? "●"
+                  : "▶"}
+            </span>
             <span>
-              <strong>{isLocked ? "Race in progress" : "Run benchmark"}</strong>
+              <strong>
+                {phase === "countdown"
+                  ? "Starting race"
+                  : phase === "running"
+                    ? "Race in progress"
+                    : "Run benchmark"}
+              </strong>
               <small>
                 {isLocked
-                  ? "Both paths are running from the same prompt"
+                  ? "Both paths are locked to the same prompt"
                   : "Start both paths at the same time"}
               </small>
             </span>
           </button>
 
           <p className="method-note">
-            Simulation mode uses identical token estimates and published list
-            prices. Timing is illustrative until the live API bridge is wired.
+            Simulation mode uses identical token estimates and configured list
+            prices. Timing remains illustrative until Live mode is connected.
           </p>
         </article>
 
         <article
           className={
             "lane-card direct-lane" +
-            (phase === "running" ? " is-running" : "")
+            (phase === "running" ? " is-running" : "") +
+            (directDone ? " is-done" : "")
           }
         >
           <div className="lane-head">
@@ -610,72 +734,101 @@ export default function App() {
               </div>
             </div>
             <span className="status-pill status-direct">
-              {phase === "idle" ? "MANUAL" : directDone ? "DONE" : "LIVE"}
+              {phase === "idle"
+                ? "MANUAL"
+                : phase === "countdown"
+                  ? "ARMED"
+                  : directDone
+                    ? "DONE"
+                    : "LIVE"}
             </span>
           </div>
 
-          <div className="provider-switch">
-            <button
-              type="button"
-              disabled={isLocked}
-              className={provider === "anthropic" ? "active" : ""}
-              onClick={() => chooseProvider("anthropic")}
-            >
-              Anthropic
-            </button>
-            <button
-              type="button"
-              disabled={isLocked}
-              className={provider === "openai" ? "active" : ""}
-              onClick={() => chooseProvider("openai")}
-            >
-              OpenAI
-            </button>
-          </div>
+          {phase === "idle" ? (
+            <>
+              <div className="provider-switch">
+                <button
+                  type="button"
+                  className={provider === "anthropic" ? "active" : ""}
+                  onClick={() => chooseProvider("anthropic")}
+                >
+                  Anthropic
+                </button>
+                <button
+                  type="button"
+                  className={provider === "openai" ? "active" : ""}
+                  onClick={() => chooseProvider("openai")}
+                >
+                  OpenAI
+                </button>
+              </div>
 
-          <div className="model-list">
-            {modelsForProvider(provider).map((model) => (
-              <ModelOption
-                key={model.id}
-                model={model}
-                selected={model.id === modelId}
-                disabled={isLocked}
-                onSelect={() => {
-                  setModelId(model.id);
-                  reset();
-                }}
-              />
-            ))}
-          </div>
+              <div className="model-list">
+                {modelsForProvider(provider).map((model) => (
+                  <ModelOption
+                    key={model.id}
+                    model={model}
+                    selected={model.id === modelId}
+                    disabled={false}
+                    onSelect={() => {
+                      setModelId(model.id);
+                      reset();
+                    }}
+                  />
+                ))}
+              </div>
 
-          <div className="direct-selected">
-            <div>
-              <span className="micro-label">DIRECT CALL</span>
-              <strong>{livePlan.direct.model.name}</strong>
+              <div className="direct-selected">
+                <div>
+                  <span className="micro-label">DIRECT CALL</span>
+                  <strong>{directModel.name}</strong>
+                </div>
+                <span className="no-router">NO ROUTER</span>
+              </div>
+            </>
+          ) : (
+            <div className="direct-focus-stage">
+              <span className="focus-kicker">LOCKED BASELINE</span>
+              <div className="focus-model-mark">M</div>
+              <h3>{livePlan.direct.model.name}</h3>
+              <p>
+                {livePlan.direct.model.providerLabel} ·{" "}
+                {tierLabel[livePlan.direct.model.tier]}
+              </p>
+              <div className="focus-price-row">
+                <span>
+                  {"Input $" + livePlan.direct.model.inputPrice + "/M"}
+                </span>
+                <span>
+                  {"Output $" + livePlan.direct.model.outputPrice + "/M"}
+                </span>
+              </div>
+              <span className="no-router focus-no-router">NO ROUTER</span>
             </div>
-            <span className="no-router">NO ROUTER</span>
-          </div>
+          )}
 
           <div className="metrics-grid">
             <Metric
               label="TIME"
               value={formatTime(
-                phase === "idle"
+                phase === "idle" || phase === "countdown"
                   ? 0
                   : Math.min(elapsed, livePlan.direct.totalSeconds)
               )}
               sub="model only"
+              accent="direct"
             />
             <Metric
               label="COST"
               value={formatMoney(directCost)}
-              sub="live estimate"
+              sub="direct total"
+              accent="direct"
             />
           </div>
 
           <Timeline
             kind="direct"
-            elapsed={elapsed}
+            elapsed={phase === "running" || phase === "done" ? elapsed : 0}
             plan={livePlan}
             done={directDone}
           />
@@ -687,29 +840,16 @@ export default function App() {
         </article>
 
         <section
-          className={
-            "results-panel" +
-            (phase === "done" ? " visible" : "") +
-            (phase === "running" ? " tracking" : "")
-          }
+          className={"results-panel" + (phase === "done" ? " visible" : "")}
         >
           <div className="results-heading">
             <div>
               <span className="lane-kicker">BENCHMARK VERDICT</span>
-              <h2>
-                {phase === "idle"
-                  ? "Results appear here after the race."
-                  : phase === "running"
-                    ? "Measuring both paths..."
-                    : routeSaving >= 0
-                      ? "Routing used less money on this task."
-                      : "The direct path cost less on this task."}
-              </h2>
+              <h2>{verdictHeadline}</h2>
             </div>
-
             <div className="result-status">
               <span className="result-dot" />
-              {phase === "done" ? "SIMULATION COMPLETE" : "WAITING"}
+              SIMULATION COMPLETE
             </div>
           </div>
 
@@ -717,16 +857,8 @@ export default function App() {
             <div className="result-path route">
               <span>JEV ROUTE</span>
               <strong>{livePlan.route.model.compactName}</strong>
-              <b>
-                {phase === "done"
-                  ? formatMoney(livePlan.route.totalCost)
-                  : "—"}
-              </b>
-              <small>
-                {phase === "done"
-                  ? formatTime(livePlan.route.totalSeconds)
-                  : "—"}
-              </small>
+              <b>{formatMoney(livePlan.route.totalCost)}</b>
+              <small>{formatTime(livePlan.route.totalSeconds)}</small>
             </div>
 
             <div className="vs-badge">VS</div>
@@ -734,26 +866,16 @@ export default function App() {
             <div className="result-path direct">
               <span>DIRECT</span>
               <strong>{livePlan.direct.model.compactName}</strong>
-              <b>
-                {phase === "done"
-                  ? formatMoney(livePlan.direct.totalCost)
-                  : "—"}
-              </b>
-              <small>
-                {phase === "done"
-                  ? formatTime(livePlan.direct.totalSeconds)
-                  : "—"}
-              </small>
+              <b>{formatMoney(livePlan.direct.totalCost)}</b>
+              <small>{formatTime(livePlan.direct.totalSeconds)}</small>
             </div>
 
             <div className="saving-card">
               <span>COST DELTA</span>
               <strong>
-                {phase === "done"
-                  ? (routeSaving >= 0 ? "−" : "+") +
-                    Math.abs(routeSaving).toFixed(1) +
-                    "%"
-                  : "—"}
+                {(routeSaving >= 0 ? "−" : "+") +
+                  Math.abs(routeSaving).toFixed(1) +
+                  "%"}
               </strong>
               <small>
                 {routeSaving >= 0 ? "with JEV routing" : "routing overhead"}
@@ -763,11 +885,9 @@ export default function App() {
             <div className="saving-card">
               <span>TIME DELTA</span>
               <strong>
-                {phase === "done"
-                  ? (timeSaving >= 0 ? "−" : "+") +
-                    Math.abs(timeSaving).toFixed(1) +
-                    "%"
-                  : "—"}
+                {(timeSaving >= 0 ? "−" : "+") +
+                  Math.abs(timeSaving).toFixed(1) +
+                  "%"}
               </strong>
               <small>
                 {timeSaving >= 0 ? "with JEV routing" : "routing overhead"}
@@ -775,30 +895,46 @@ export default function App() {
             </div>
           </div>
 
-          {phase === "done" ? (
-            <div className="signal-strip">
-              {livePlan.route.analysis.signals.map((signal) => (
-                <div key={signal.label}>
-                  <span>{signal.label}</span>
-                  <strong>{signal.value}</strong>
-                </div>
-              ))}
-              <div>
-                <span>Expected</span>
-                <strong>{expectation}</strong>
-              </div>
-              <div>
-                <span>Outcome</span>
-                <strong>Simulated pass</strong>
-              </div>
+          <div className="verdict-grid">
+            <div className="verdict-card">
+              <span>COST</span>
+              <strong>{deltaWinner(routeSaving)}</strong>
+              <small>{Math.abs(routeSaving).toFixed(1)}% delta</small>
             </div>
-          ) : null}
+            <div className="verdict-card">
+              <span>TIME</span>
+              <strong>{deltaWinner(timeSaving)}</strong>
+              <small>{Math.abs(timeSaving).toFixed(1)}% delta</small>
+            </div>
+            <div className="verdict-card quality">
+              <span>QUALITY</span>
+              <strong>Not measured</strong>
+              <small>Simulation does not evaluate responses</small>
+            </div>
+          </div>
+
+          <div className="signal-strip">
+            {livePlan.route.analysis.signals.map((signal) => (
+              <div key={signal.label}>
+                <span>{signal.label}</span>
+                <strong>{signal.value}</strong>
+              </div>
+            ))}
+            <div>
+              <span>Expected</span>
+              <strong>{expectation}</strong>
+            </div>
+            <div>
+              <span>Measurement</span>
+              <strong>Simulation</strong>
+            </div>
+          </div>
         </section>
       </section>
 
       <footer className="footer">
         <span>JEVArena · simulation-first benchmark UI</span>
-        <span>Prices configured for standard API list rates · Oct 2026</span>
+        <span>Configured list-rate comparison · Oct 2026</span>
       </footer>
     </main>
   );
