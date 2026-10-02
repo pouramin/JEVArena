@@ -34,6 +34,18 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Package Windows source ZIP
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: zip -r JEVArena-Windows.zip . -x ".git/*" "node_modules/*" "dist/*" "JEVArena-Windows.zip"
+
+      - name: Upload Windows ZIP
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: JEVArena-Windows
+          path: JEVArena-Windows.zip
+          retention-days: 7
+
       - name: Upload Pages artifact
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
