@@ -6,6 +6,12 @@ import {
 
 export type Complexity = "Easy" | "Medium" | "Hard";
 
+export type WorkloadProfile = {
+  inputTokens: number;
+  outputTokens: number;
+  baseSeconds: number;
+};
+
 export type Analysis = {
   complexity: Complexity;
   tier: Tier;
@@ -55,7 +61,13 @@ export function analyzePrompt(prompt: string): Analysis {
     "database",
     "production",
     "multi-file",
-    "multi file"
+    "multi file",
+    "deadlock",
+    "memory leak",
+    "consistency",
+    "privilege",
+    "rollback",
+    "cross-service"
   ];
 
   const mediumSignals = [
@@ -67,7 +79,11 @@ export function analyzePrompt(prompt: string): Analysis {
     "validation",
     "api",
     "component",
-    "implement"
+    "implement",
+    "pagination",
+    "cache",
+    "retry",
+    "query"
   ];
 
   const easySignals = [
@@ -77,7 +93,10 @@ export function analyzePrompt(prompt: string): Analysis {
     "format",
     "find",
     "comment",
-    "copy"
+    "copy",
+    "unused import",
+    "label",
+    "string"
   ];
 
   if (includesAny(source, hardSignals)) score += 3;
@@ -97,7 +116,13 @@ export function analyzePrompt(prompt: string): Analysis {
         { label: "Context depth", value: prompt.length > 500 ? "High" : "Medium" },
         {
           label: "Risk",
-          value: includesAny(source, ["security", "authentication", "database", "production"])
+          value: includesAny(source, [
+            "security",
+            "authentication",
+            "database",
+            "production",
+            "privilege"
+          ])
             ? "Elevated"
             : "Normal"
         }
@@ -116,7 +141,9 @@ export function analyzePrompt(prompt: string): Analysis {
         { label: "Context depth", value: "Medium" },
         {
           label: "Risk",
-          value: includesAny(source, ["security", "authentication"]) ? "Elevated" : "Normal"
+          value: includesAny(source, ["security", "authentication"])
+            ? "Elevated"
+            : "Normal"
         }
       ]
     };
@@ -153,11 +180,12 @@ const secondsByComplexity: Record<Complexity, number> = {
   Hard: 8.25
 };
 
-function tokenEstimate(prompt: string, complexity: Complexity) {
+function tokenEstimate(prompt: string, complexity: Complexity): WorkloadProfile {
   const promptTokens = Math.max(80, Math.ceil(prompt.length / 4));
   return {
     inputTokens: promptTokens + contextByComplexity[complexity],
-    outputTokens: outputByComplexity[complexity]
+    outputTokens: outputByComplexity[complexity],
+    baseSeconds: secondsByComplexity[complexity]
   };
 }
 
@@ -168,10 +196,14 @@ function modelCost(model: Model, inputTokens: number, outputTokens: number) {
   );
 }
 
-export function makeRunPlan(prompt: string, directModel: Model): RunPlan {
+export function makeRunPlan(
+  prompt: string,
+  directModel: Model,
+  workload?: WorkloadProfile
+): RunPlan {
   const analysis = analyzePrompt(prompt);
   const routeModel = anthropicModelForTier(analysis.tier);
-  const tokenUsage = tokenEstimate(prompt, analysis.complexity);
+  const tokenUsage = workload ?? tokenEstimate(prompt, analysis.complexity);
 
   const routeModelCost = modelCost(
     routeModel,
@@ -188,7 +220,7 @@ export function makeRunPlan(prompt: string, directModel: Model): RunPlan {
   const jevInputTokens = Math.max(120, Math.ceil(prompt.length / 4) + 180);
   const jevCost = (jevInputTokens / 1_000_000) * JEV_INPUT_PRICE;
   const decisionSeconds = 0.17 + Math.min(prompt.length, 900) / 9000;
-  const baseSeconds = secondsByComplexity[analysis.complexity];
+  const baseSeconds = tokenUsage.baseSeconds;
 
   return {
     route: {
