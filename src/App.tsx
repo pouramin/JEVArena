@@ -908,7 +908,7 @@ export default function App() {
                   ? "READY"
                   : phase === "countdown"
                     ? "ARMED"
-                    : routeDone
+                    : decisionVisible
                       ? "DONE"
                       : "LIVE"}
               </span>
@@ -1020,7 +1020,7 @@ export default function App() {
               kind="route"
               elapsed={phase === "running" || phase === "done" ? elapsed : 0}
               plan={livePlan}
-              done={routeDone}
+              done={decisionVisible}
             />
 
             <div className="lane-foot">
