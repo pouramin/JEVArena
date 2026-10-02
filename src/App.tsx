@@ -448,11 +448,6 @@ export default function App() {
   const isLocked = phase === "countdown" || phase === "running";
   const isRaceActive = phase === "countdown" || phase === "running";
 
-  const routeProgress =
-    phase === "running" || phase === "done"
-      ? Math.min(elapsed / livePlan.route.totalSeconds, 1)
-      : 0;
-
   const directProgress =
     phase === "running" || phase === "done"
       ? Math.min(elapsed / livePlan.direct.totalSeconds, 1)
