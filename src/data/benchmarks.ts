@@ -13,8 +13,9 @@ export type BenchmarkCase = {
 };
 
 type RandomSource = () => number;
+type ActionTemplate = readonly [string, string];
 
-const EASY_ACTIONS = [
+const EASY_ACTIONS: readonly ActionTemplate[] = [
   ["README typo", "Fix a typo in the {target} and do not change anything else."],
   ["Rename local symbol", "Rename one local variable in the {target} and update only its direct references."],
   ["Remove unused import", "Remove the unused import reported by the linter in the {target}."],
@@ -25,9 +26,9 @@ const EASY_ACTIONS = [
   ["Type cleanup", "Replace one duplicated inline string union in the {target} with the existing shared type."],
   ["Test name cleanup", "Rename one test description in the {target} so it matches the behavior it already tests."],
   ["Literal cleanup", "Replace the duplicated string literal in the {target} with the existing constant."]
-] as const;
+];
 
-const MEDIUM_ACTIONS = [
+const MEDIUM_ACTIONS: readonly ActionTemplate[] = [
   ["Validation bug", "Fix the validation bug in the {target}, add a regression test, and preserve current valid behavior."],
   ["Retry handling", "Improve the retry behavior in the {target} for transient failures and add focused tests."],
   ["Component refactor", "Refactor the {target} to remove duplicated state logic without changing public behavior."],
@@ -38,9 +39,9 @@ const MEDIUM_ACTIONS = [
   ["Query optimization", "Refactor the database query used by the {target} to avoid repeated lookups while preserving the result shape."],
   ["API error mapping", "Fix inconsistent API error mapping in the {target} and add tests for the affected status codes."],
   ["Async state bug", "Fix the async state bug in the {target} that can show stale UI after a successful request."]
-] as const;
+];
 
-const HARD_ACTIONS = [
+const HARD_ACTIONS: readonly ActionTemplate[] = [
   ["Concurrent session race", "Investigate the root cause of a concurrent session race condition in the {target}, implement a safe fix, and add regression tests."],
   ["Cross-module redesign", "Redesign the architecture around the {target} so responsibilities are isolated across multiple modules without breaking current behavior."],
   ["Distributed duplication", "Find why distributed workers around the {target} can process the same job twice under load and implement an idempotent fix."],
@@ -51,7 +52,7 @@ const HARD_ACTIONS = [
   ["Deadlock investigation", "Investigate an intermittent database deadlock involving the {target}, identify the conflicting transaction path, and implement a safe fix."],
   ["Cross-service rollback", "Design a failure-safe rollback strategy for the {target} across multiple services while preserving consistency during partial failures."],
   ["Large data migration", "Plan and implement a multi-stage data migration for the {target} while keeping old and new application versions compatible during rollout."]
-] as const;
+];
 
 const TARGETS = [
   "account settings flow",
