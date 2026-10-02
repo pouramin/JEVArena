@@ -15,6 +15,9 @@ export type BenchmarkCase = {
 type RandomSource = () => number;
 type ActionTemplate = readonly [string, string];
 
+const POOL_PER_LEVEL = 500;
+export const PROMPT_POOL_SIZE = POOL_PER_LEVEL * 3;
+
 const EASY_ACTIONS: readonly ActionTemplate[] = [
   ["README typo", "Fix a typo in the {target} and do not change anything else."],
   ["Rename local symbol", "Rename one local variable in the {target} and update only its direct references."],
@@ -22,7 +25,7 @@ const EASY_ACTIONS: readonly ActionTemplate[] = [
   ["Copy update", "Update one short UI label in the {target} without changing behavior."],
   ["Formatting cleanup", "Format the configuration object in the {target} to match the surrounding style."],
   ["Find usage", "Find where the exported helper from the {target} is used and list the relevant file paths. Do not modify files."],
-  ["Short comment", "Add one concise comment in the {target} explaining the existing retry delay."],
+  ["Short comment", "Add one concise comment in the {target} explaining the existing delay."],
   ["Type cleanup", "Replace one duplicated inline string union in the {target} with the existing shared type."],
   ["Test name cleanup", "Rename one test description in the {target} so it matches the behavior it already tests."],
   ["Literal cleanup", "Replace the duplicated string literal in the {target} with the existing constant."]
@@ -45,12 +48,12 @@ const HARD_ACTIONS: readonly ActionTemplate[] = [
   ["Concurrent session race", "Investigate the root cause of a concurrent session race condition in the {target}, implement a safe fix, and add regression tests."],
   ["Cross-module redesign", "Redesign the architecture around the {target} so responsibilities are isolated across multiple modules without breaking current behavior."],
   ["Distributed duplication", "Find why distributed workers around the {target} can process the same job twice under load and implement an idempotent fix."],
-  ["Schema migration", "Design a backwards-compatible database migration for the {target} with a safe rollout and rollback path."],
+  ["Schema migration", "Design a backwards-compatible database schema migration for the {target} with a safe rollout and rollback path."],
   ["Production memory leak", "Investigate a production memory leak around the {target}, identify the root cause across the lifecycle, and implement a verified fix."],
   ["Cache consistency", "Resolve a distributed cache consistency failure in the {target} that exposes stale state across application instances."],
   ["Multi-file refactor", "Refactor the {target} across multiple files to separate parsing, validation, and orchestration while preserving public behavior."],
   ["Deadlock investigation", "Investigate an intermittent database deadlock involving the {target}, identify the conflicting transaction path, and implement a safe fix."],
-  ["Cross-service rollback", "Design a failure-safe rollback strategy for the {target} across multiple services while preserving consistency during partial failures."],
+  ["Cross-service rollback", "Design a failure-safe cross-service rollback strategy for the {target} while preserving consistency during partial failures."],
   ["Large data migration", "Plan and implement a multi-stage data migration for the {target} while keeping old and new application versions compatible during rollout."]
 ];
 
@@ -66,7 +69,15 @@ const TARGETS = [
   "search endpoint",
   "permissions service",
   "websocket session manager",
-  "file upload flow"
+  "file upload flow",
+  "analytics pipeline",
+  "admin dashboard",
+  "subscription service",
+  "team invitation flow",
+  "audit log service",
+  "email delivery adapter",
+  "report generation flow",
+  "project import service"
 ];
 
 const EASY_CONTEXTS = [
@@ -75,7 +86,9 @@ const EASY_CONTEXTS = [
   "Avoid unrelated cleanup.",
   "Preserve behavior exactly.",
   "Use the existing style in the file.",
-  "Do not introduce a new dependency."
+  "Do not introduce a new dependency.",
+  "Keep the diff to the smallest practical change.",
+  "Do not change any public interface."
 ];
 
 const EASY_CONSTRAINTS = [
@@ -84,7 +97,9 @@ const EASY_CONSTRAINTS = [
   "Keep the diff minimal.",
   "Do not refactor surrounding code.",
   "Leave public behavior unchanged.",
-  "Return only the requested change."
+  "Return only the requested change.",
+  "Keep existing formatting conventions.",
+  "Do not add new configuration."
 ];
 
 const MEDIUM_CONTEXTS = [
@@ -93,7 +108,9 @@ const MEDIUM_CONTEXTS = [
   "Use the conventions already present in the repository.",
   "Preserve backwards compatibility.",
   "Existing callers must continue to work unchanged.",
-  "Keep the change focused and reviewable."
+  "Keep the change focused and reviewable.",
+  "The affected flow has several existing edge cases.",
+  "The implementation should remain easy to review."
 ];
 
 const MEDIUM_CONSTRAINTS = [
@@ -102,7 +119,9 @@ const MEDIUM_CONSTRAINTS = [
   "Reuse existing helpers where possible.",
   "Do not change environment configuration.",
   "Keep logging behavior unchanged.",
-  "Avoid unrelated cleanup."
+  "Avoid unrelated cleanup.",
+  "Cover the failure path as well as the happy path.",
+  "Keep the public types stable."
 ];
 
 const HARD_CONTEXTS = [
@@ -111,7 +130,9 @@ const HARD_CONTEXTS = [
   "Backwards compatibility matters during the rollout.",
   "The system has existing tests but no coverage for this failure mode.",
   "Multiple application instances can observe the affected state.",
-  "The change must remain safe during partial deployment."
+  "The change must remain safe during partial deployment.",
+  "The failure only appears when several operations overlap.",
+  "The fix has to work during a rolling deployment."
 ];
 
 const HARD_CONSTRAINTS = [
@@ -120,29 +141,10 @@ const HARD_CONSTRAINTS = [
   "Include a safe rollout or rollback strategy where relevant.",
   "Preserve existing public interfaces unless the fix requires otherwise.",
   "Avoid masking the symptom without addressing the root cause.",
-  "Keep data consistency intact during failures."
+  "Keep data consistency intact during failures.",
+  "Include a concurrency-focused test where appropriate.",
+  "Explain the system boundary that caused the failure."
 ];
-
-function contextFor(level: BenchmarkLevel, random: RandomSource) {
-  if (level === "Easy") {
-    return {
-      context: pick(EASY_CONTEXTS, random),
-      extra: pick(EASY_CONSTRAINTS, random)
-    };
-  }
-
-  if (level === "Medium") {
-    return {
-      context: pick(MEDIUM_CONTEXTS, random),
-      extra: pick(MEDIUM_CONSTRAINTS, random)
-    };
-  }
-
-  return {
-    context: pick(HARD_CONTEXTS, random),
-    extra: pick(HARD_CONSTRAINTS, random)
-  };
-}
 
 function mulberry32(seed: number): RandomSource {
   let value = seed >>> 0;
@@ -161,6 +163,15 @@ function pick<T>(items: readonly T[], random: RandomSource): T {
 
 function integer(min: number, max: number, random: RandomSource) {
   return Math.floor(random() * (max - min + 1)) + min;
+}
+
+function shuffle<T>(items: readonly T[], random: RandomSource) {
+  const result = [...items];
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(random() * (index + 1));
+    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
+  }
+  return result;
 }
 
 function workloadFor(level: BenchmarkLevel, random: RandomSource): WorkloadProfile {
@@ -193,6 +204,27 @@ function actionsFor(level: BenchmarkLevel) {
   return HARD_ACTIONS;
 }
 
+function contextFor(level: BenchmarkLevel, random: RandomSource) {
+  if (level === "Easy") {
+    return {
+      context: pick(EASY_CONTEXTS, random),
+      extra: pick(EASY_CONSTRAINTS, random)
+    };
+  }
+
+  if (level === "Medium") {
+    return {
+      context: pick(MEDIUM_CONTEXTS, random),
+      extra: pick(MEDIUM_CONSTRAINTS, random)
+    };
+  }
+
+  return {
+    context: pick(HARD_CONTEXTS, random),
+    extra: pick(HARD_CONSTRAINTS, random)
+  };
+}
+
 function makeCase(
   level: BenchmarkLevel,
   ordinal: number,
@@ -206,7 +238,7 @@ function makeCase(
   const prefix = level === "Easy" ? "E" : level === "Medium" ? "M" : "H";
 
   return {
-    id: prefix + String(ordinal + 1).padStart(2, "0"),
+    id: prefix + String(ordinal + 1).padStart(3, "0"),
     level,
     title: action[0] + " · " + target,
     prompt,
@@ -215,29 +247,47 @@ function makeCase(
   };
 }
 
-function uniqueCases(
+function buildLevelPool(
   level: BenchmarkLevel,
   count: number,
-  random: RandomSource
-) {
-  const cases: BenchmarkCase[] = [];
+  seed: number
+): BenchmarkCase[] {
+  const random = mulberry32(seed);
+  const pool: BenchmarkCase[] = [];
   const seen = new Set<string>();
   let attempts = 0;
 
-  while (cases.length < count && attempts < count * 50) {
-    const candidate = makeCase(level, cases.length, random);
+  while (pool.length < count && attempts < count * 100) {
+    const candidate = makeCase(level, pool.length, random);
     attempts += 1;
     if (seen.has(candidate.variantKey)) continue;
     seen.add(candidate.variantKey);
-    cases.push(candidate);
+    pool.push(candidate);
   }
 
-  return cases.map((item, index) => ({
-    ...item,
-    id:
-      (level === "Easy" ? "E" : level === "Medium" ? "M" : "H") +
-      String(index + 1).padStart(2, "0")
-  }));
+  if (pool.length < count) {
+    throw new Error("Could not build the requested benchmark prompt pool.");
+  }
+
+  return pool;
+}
+
+const EASY_POOL = buildLevelPool("Easy", POOL_PER_LEVEL, 11031991);
+const MEDIUM_POOL = buildLevelPool("Medium", POOL_PER_LEVEL, 24071995);
+const HARD_POOL = buildLevelPool("Hard", POOL_PER_LEVEL, 17122001);
+
+export const PROMPT_POOL = [
+  ...EASY_POOL,
+  ...MEDIUM_POOL,
+  ...HARD_POOL
+];
+
+function sampleLevel(
+  pool: readonly BenchmarkCase[],
+  count: number,
+  random: RandomSource
+) {
+  return shuffle(pool, random).slice(0, count);
 }
 
 export function createBenchmarkSeed() {
@@ -250,15 +300,17 @@ export function generateBenchmarkSuite(
 ) {
   const random = mulberry32(seed);
 
-  if (scope === "Easy") return uniqueCases("Easy", 8, random);
-  if (scope === "Medium") return uniqueCases("Medium", 8, random);
-  if (scope === "Hard") return uniqueCases("Hard", 8, random);
+  if (scope === "Easy") return sampleLevel(EASY_POOL, 8, random);
+  if (scope === "Medium") return sampleLevel(MEDIUM_POOL, 8, random);
+  if (scope === "Hard") return sampleLevel(HARD_POOL, 8, random);
 
-  return [
-    ...uniqueCases("Easy", 8, random),
-    ...uniqueCases("Medium", 8, random),
-    ...uniqueCases("Hard", 8, random)
+  const balanced = [
+    ...sampleLevel(EASY_POOL, 8, random),
+    ...sampleLevel(MEDIUM_POOL, 8, random),
+    ...sampleLevel(HARD_POOL, 8, random)
   ];
+
+  return shuffle(balanced, random);
 }
 
 export function suiteSize(scope: BenchmarkScope) {
@@ -266,4 +318,4 @@ export function suiteSize(scope: BenchmarkScope) {
 }
 
 export const GENERATED_POOL_NOTE =
-  "Prompts are generated from combinatorial task, target, context, and constraint templates, producing thousands of possible variants per difficulty level.";
+  "1,500 unique prompts are pre-generated in the local pool: 500 Easy, 500 Medium, and 500 Hard. Each suite samples without replacement, and Full mode shuffles all 24 cases before execution.";
