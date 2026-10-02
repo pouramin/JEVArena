@@ -12,9 +12,10 @@ import {
   type Tier
 } from "./data/models";
 import {
-  BENCHMARK_CASES,
-  casesForScope,
-  type BenchmarkCase,
+  GENERATED_POOL_NOTE,
+  createBenchmarkSeed,
+  generateBenchmarkSuite,
+  suiteSize,
   type BenchmarkScope
 } from "./data/benchmarks";
 import { makeRunPlan, type RunPlan } from "./lib/simulator";
@@ -331,6 +332,7 @@ export default function App() {
   const [batchPhase, setBatchPhase] = useState<BatchPhase>("idle");
   const [batchIndex, setBatchIndex] = useState(0);
   const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
+  const [batchSeed, setBatchSeed] = useState(() => createBenchmarkSeed());
 
   const directModel = getModel(modelId);
   const previewPlan = useMemo(
@@ -339,8 +341,8 @@ export default function App() {
   );
   const livePlan = currentPlan ?? previewPlan;
   const selectedCases = useMemo(
-    () => casesForScope(batchScope),
-    [batchScope]
+    () => generateBenchmarkSuite(batchScope, batchSeed),
+    [batchScope, batchSeed]
   );
 
   useEffect(() => {
@@ -391,7 +393,7 @@ export default function App() {
     }
 
     const timer = window.setTimeout(() => {
-      const plan = makeRunPlan(item.prompt, directModel);
+      const plan = makeRunPlan(item.prompt, directModel, item.workload);
       const routeCostDelta = percentageDelta(
         plan.direct.totalCost,
         plan.route.totalCost
@@ -542,6 +544,25 @@ export default function App() {
     };
   }, [batchResults]);
 
+  const levelSummaries = useMemo(() => {
+    return (["Easy", "Medium", "Hard"] as const).map((level) => {
+      const items = batchResults.filter((item) => item.expected === level);
+      const routeCost = items.reduce((sum, item) => sum + item.routeCost, 0);
+      const directCost = items.reduce((sum, item) => sum + item.directCost, 0);
+      const routeTime = items.reduce((sum, item) => sum + item.routeTime, 0);
+      const directTime = items.reduce((sum, item) => sum + item.directTime, 0);
+
+      return {
+        level,
+        count: items.length,
+        costDelta: percentageDelta(directCost, routeCost),
+        timeDelta: percentageDelta(directTime, routeTime),
+        routeCost,
+        directCost
+      };
+    });
+  }, [batchResults]);
+
   const run = () => {
     if (!prompt.trim() || isLocked) return;
 
@@ -562,13 +583,21 @@ export default function App() {
 
   const startBatch = () => {
     if (batchPhase === "running") return;
+    setBatchSeed(createBenchmarkSeed());
     setBatchResults([]);
     setBatchIndex(0);
     setBatchPhase("running");
-    setRunCount((count) => count + selectedCases.length);
+    setRunCount((count) => count + suiteSize(batchScope));
   };
 
   const resetBatch = () => {
+    setBatchPhase("idle");
+    setBatchIndex(0);
+    setBatchResults([]);
+  };
+
+  const shuffleBatch = () => {
+    setBatchSeed(createBenchmarkSeed());
     setBatchPhase("idle");
     setBatchIndex(0);
     setBatchResults([]);
@@ -629,6 +658,9 @@ export default function App() {
       "Direct Time s",
       "Time Saving %",
       "Routing Match",
+      "Input Tokens",
+      "Output Tokens",
+      "Suite Seed",
       "Prompt"
     ];
 
@@ -647,6 +679,9 @@ export default function App() {
       item.directTime.toFixed(4),
       item.timeDelta.toFixed(2),
       item.routingMatch,
+      selectedCases.find((entry) => entry.id === item.caseId)?.workload.inputTokens ?? "",
+      selectedCases.find((entry) => entry.id === item.caseId)?.workload.outputTokens ?? "",
+      batchSeed,
       item.prompt
     ]);
 
@@ -670,6 +705,9 @@ export default function App() {
       batchTotals.directTimeTotal.toFixed(4),
       batchTotals.timeDelta.toFixed(2),
       batchTotals.routingMatches + "/" + batchResults.length,
+      "",
+      "",
+      batchSeed,
       "Quality is not evaluated in Simulation mode."
     ]);
 
@@ -1359,13 +1397,22 @@ export default function App() {
                 <h2>Run a controlled test suite.</h2>
               </div>
               {batchPhase === "done" ? (
-                <button
-                  className="text-button"
-                  onClick={resetBatch}
-                  type="button"
-                >
-                  New suite
-                </button>
+                <div className="batch-control-actions">
+                  <button
+                    className="text-button"
+                    onClick={shuffleBatch}
+                    type="button"
+                  >
+                    New random suite
+                  </button>
+                  <button
+                    className="text-button reset-button"
+                    onClick={resetBatch}
+                    type="button"
+                  >
+                    Reset
+                  </button>
+                </div>
               ) : null}
             </div>
 
@@ -1373,9 +1420,7 @@ export default function App() {
               {(["Easy", "Medium", "Hard", "Full"] as BenchmarkScope[]).map(
                 (scope) => {
                   const count =
-                    scope === "Full"
-                      ? BENCHMARK_CASES.length
-                      : casesForScope(scope).length;
+                    suiteSize(scope);
                   return (
                     <button
                       type="button"
@@ -1384,6 +1429,7 @@ export default function App() {
                       disabled={batchPhase === "running"}
                       onClick={() => {
                         setBatchScope(scope);
+                        setBatchSeed(createBenchmarkSeed());
                         resetBatch();
                       }}
                     >
@@ -1393,6 +1439,12 @@ export default function App() {
                   );
                 }
               )}
+            </div>
+
+            <div className="batch-seed-row">
+              <span>Random suite seed</span>
+              <strong>{batchSeed}</strong>
+              <small>{GENERATED_POOL_NOTE}</small>
             </div>
 
             <div className="batch-progress-card">
@@ -1578,6 +1630,13 @@ export default function App() {
                   {batchResults.length} CASES COMPLETE
                 </div>
                 <button
+                  className="text-button reset-button"
+                  type="button"
+                  onClick={resetBatch}
+                >
+                  Reset
+                </button>
+                <button
                   className="export-button"
                   type="button"
                   onClick={exportBatchCsv}
@@ -1632,6 +1691,37 @@ export default function App() {
                 <strong>Not measured</strong>
                 <small>Requires Live coding-task evaluation</small>
               </div>
+            </div>
+
+            <div className="level-breakdown">
+              {levelSummaries.map((summary) => (
+                <div className="level-card" key={summary.level}>
+                  <div>
+                    <span>{summary.level.toUpperCase()}</span>
+                    <strong>{summary.count} cases</strong>
+                  </div>
+                  <div>
+                    <small>Cost saving</small>
+                    <b>
+                      {summary.count
+                        ? (summary.costDelta >= 0 ? "−" : "+") +
+                          Math.abs(summary.costDelta).toFixed(1) +
+                          "%"
+                        : "—"}
+                    </b>
+                  </div>
+                  <div>
+                    <small>Time delta</small>
+                    <b>
+                      {summary.count
+                        ? (summary.timeDelta >= 0 ? "−" : "+") +
+                          Math.abs(summary.timeDelta).toFixed(1) +
+                          "%"
+                        : "—"}
+                    </b>
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div className="batch-table-wrap">
