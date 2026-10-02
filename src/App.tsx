@@ -37,9 +37,9 @@ type BatchResult = {
   routeCost: number;
   directCost: number;
   costDelta: number;
-  routeTime: number;
+  decisionTime: number;
+  routedModelTime: number;
   directTime: number;
-  timeDelta: number;
   routingMatch: boolean;
 };
 
@@ -100,10 +100,8 @@ function deltaText(delta: number) {
     (delta > 0 ? "JEV cheaper" : "JEV more expensive");
 }
 
-function timeDeltaText(delta: number) {
-  if (Math.abs(delta) < 0.05) return "0.0% · tied";
-  return Math.abs(delta).toFixed(1) + "% · " +
-    (delta > 0 ? "JEV faster" : "JEV slower");
+function formatLatency(seconds: number) {
+  return (seconds * 1000).toFixed(0) + " ms";
 }
 
 function csvEscape(value: string | number | boolean) {
@@ -410,11 +408,6 @@ export default function App() {
         plan.direct.totalCost,
         plan.route.totalCost
       );
-      const routeTimeDelta = percentageDelta(
-        plan.direct.totalSeconds,
-        plan.route.totalSeconds
-      );
-
       const result: BatchResult = {
         caseId: item.id,
         title: item.title,
@@ -427,9 +420,12 @@ export default function App() {
         routeCost: plan.route.totalCost,
         directCost: plan.direct.totalCost,
         costDelta: routeCostDelta,
-        routeTime: plan.route.totalSeconds,
+        decisionTime: plan.route.decisionSeconds,
+        routedModelTime: Math.max(
+          0,
+          plan.route.totalSeconds - plan.route.decisionSeconds
+        ),
         directTime: plan.direct.totalSeconds,
-        timeDelta: routeTimeDelta,
         routingMatch: plan.route.analysis.complexity === item.level
       };
 
@@ -564,8 +560,12 @@ export default function App() {
       (sum, item) => sum + item.directCost,
       0
     );
-    const routeTimeTotal = batchResults.reduce(
-      (sum, item) => sum + item.routeTime,
+    const decisionTimeTotal = batchResults.reduce(
+      (sum, item) => sum + item.decisionTime,
+      0
+    );
+    const routedModelTimeTotal = batchResults.reduce(
+      (sum, item) => sum + item.routedModelTime,
       0
     );
     const directTimeTotal = batchResults.reduce(
@@ -593,13 +593,16 @@ export default function App() {
     return {
       routeCostTotal,
       directCostTotal,
-      routeTimeTotal,
+      decisionTimeTotal,
+      routedModelTimeTotal,
       directTimeTotal,
+      averageDecisionTime: batchResults.length
+        ? decisionTimeTotal / batchResults.length
+        : 0,
       confidenceAverage,
       routingMatches,
       distribution,
-      costDelta: percentageDelta(directCostTotal, routeCostTotal),
-      timeDelta: percentageDelta(directTimeTotal, routeTimeTotal)
+      costDelta: percentageDelta(directCostTotal, routeCostTotal)
     };
   }, [batchResults]);
 
@@ -608,14 +611,16 @@ export default function App() {
       const items = batchResults.filter((item) => item.expected === level);
       const routeCost = items.reduce((sum, item) => sum + item.routeCost, 0);
       const directCost = items.reduce((sum, item) => sum + item.directCost, 0);
-      const routeTime = items.reduce((sum, item) => sum + item.routeTime, 0);
-      const directTime = items.reduce((sum, item) => sum + item.directTime, 0);
+      const decisionTime = items.reduce(
+        (sum, item) => sum + item.decisionTime,
+        0
+      );
 
       return {
         level,
         count: items.length,
         costDelta: percentageDelta(directCost, routeCost),
-        timeDelta: percentageDelta(directTime, routeTime),
+        averageDecisionTime: items.length ? decisionTime / items.length : 0,
         routeCost,
         directCost
       };
@@ -713,9 +718,9 @@ export default function App() {
       "JEV Route Cost USD",
       "Direct Cost USD",
       "Cost Delta vs Direct %",
-      "JEV Route Time s",
-      "Direct Time s",
-      "Time Delta vs Direct %",
+      "JEV Decision Latency ms",
+      "Routed Model Runtime s",
+      "Direct Model Runtime s",
       "Routing Match",
       "Input Tokens",
       "Output Tokens",
@@ -734,9 +739,9 @@ export default function App() {
       item.routeCost.toFixed(8),
       item.directCost.toFixed(8),
       item.costDelta.toFixed(2),
-      item.routeTime.toFixed(4),
+      (item.decisionTime * 1000).toFixed(1),
+      item.routedModelTime.toFixed(4),
       item.directTime.toFixed(4),
-      item.timeDelta.toFixed(2),
       item.routingMatch,
       selectedCases.find((entry) => entry.id === item.caseId)?.workload.inputTokens ?? "",
       selectedCases.find((entry) => entry.id === item.caseId)?.workload.outputTokens ?? "",
@@ -760,9 +765,9 @@ export default function App() {
       batchTotals.routeCostTotal.toFixed(8),
       batchTotals.directCostTotal.toFixed(8),
       batchTotals.costDelta.toFixed(2),
-      batchTotals.routeTimeTotal.toFixed(4),
+      (batchTotals.averageDecisionTime * 1000).toFixed(1),
+      batchTotals.routedModelTimeTotal.toFixed(4),
       batchTotals.directTimeTotal.toFixed(4),
-      batchTotals.timeDelta.toFixed(2),
       batchTotals.routingMatches + "/" + batchResults.length,
       "",
       "",
@@ -839,7 +844,7 @@ export default function App() {
           <h1>
             {workspaceMode === "single"
               ? "Watch the routing decision happen."
-              : "Run the same benchmark 8 or 24 times."}
+              : "Sample 8 or 24 prompts from a 1,500-prompt pool."}
           </h1>
         </div>
         <p>
@@ -866,7 +871,7 @@ export default function App() {
           onClick={() => switchWorkspace("batch")}
         >
           <strong>Auto Benchmark</strong>
-          <small>8 / 24 cases · export results</small>
+          <small>1,500-prompt pool · random 8 / 24</small>
         </button>
       </div>
 
@@ -994,17 +999,13 @@ export default function App() {
 
             <div className="metrics-grid">
               <Metric
-                label="TIME"
-                value={formatTime(
+                label="JEV DECISION"
+                value={formatLatency(
                   phase === "idle" || phase === "countdown"
                     ? 0
-                    : Math.min(elapsed, livePlan.route.totalSeconds)
+                    : Math.min(elapsed, livePlan.route.decisionSeconds)
                 )}
-                sub={
-                  decisionVisible
-                    ? formatTime(livePlan.route.decisionSeconds) + " JEV"
-                    : "decision + model"
-                }
+                sub="prompt received → route selected"
                 accent="jev"
               />
               <Metric
@@ -1266,7 +1267,9 @@ export default function App() {
                 <span>JEV ROUTE</span>
                 <strong>{livePlan.route.model.compactName}</strong>
                 <b>{formatMoney(livePlan.route.totalCost)}</b>
-                <small>{formatTime(livePlan.route.totalSeconds)}</small>
+                <small>
+                  JEV decision {formatLatency(livePlan.route.decisionSeconds)}
+                </small>
               </div>
 
               <div className="vs-badge">VS</div>
@@ -1310,9 +1313,9 @@ export default function App() {
                 <small>{Math.abs(routeSaving).toFixed(1)}% delta</small>
               </div>
               <div className="verdict-card">
-                <span>TIME</span>
-                <strong>{deltaWinner(timeSaving)}</strong>
-                <small>{Math.abs(timeSaving).toFixed(1)}% delta</small>
+                <span>JEV DECISION</span>
+                <strong>{formatLatency(livePlan.route.decisionSeconds)}</strong>
+                <small>router latency only · model runtime excluded</small>
               </div>
               <div className="verdict-card quality">
                 <span>QUALITY</span>
@@ -1469,9 +1472,9 @@ export default function App() {
 
             <div className="metrics-grid">
               <Metric
-                label="TOTAL TIME"
-                value={formatTime(batchTotals.routeTimeTotal)}
-                sub="JEV decision + routed model"
+                label="JEV DECISION"
+                value={formatLatency(batchTotals.averageDecisionTime)}
+                sub={"avg · " + formatLatency(batchTotals.decisionTimeTotal) + " total"}
                 accent="jev"
               />
               <Metric
@@ -1701,9 +1704,9 @@ export default function App() {
 
             <div className="metrics-grid">
               <Metric
-                label="TOTAL TIME"
+                label="MODEL RUNTIME"
                 value={formatTime(batchTotals.directTimeTotal)}
-                sub="model only"
+                sub="simulated baseline runtime"
                 accent="direct"
               />
               <Metric
@@ -1783,13 +1786,10 @@ export default function App() {
                 </small>
               </div>
               <div className="summary-card">
-                <span>TIME VS DIRECT</span>
-                <strong className={batchTotals.timeDelta >= 0 ? "delta-good" : "delta-bad"}>
-                  {timeDeltaText(batchTotals.timeDelta)}
-                </strong>
+                <span>AVG JEV DECISION</span>
+                <strong>{formatLatency(batchTotals.averageDecisionTime)}</strong>
                 <small>
-                  {formatTime(batchTotals.routeTimeTotal)} vs{" "}
-                  {formatTime(batchTotals.directTimeTotal)}
+                  router only · selected model runtime excluded
                 </small>
               </div>
               <div className="summary-card">
@@ -1828,9 +1828,11 @@ export default function App() {
                     </b>
                   </div>
                   <div>
-                    <small>Time vs direct</small>
-                    <b className={summary.timeDelta >= 0 ? "delta-good" : "delta-bad"}>
-                      {summary.count ? timeDeltaText(summary.timeDelta) : "—"}
+                    <small>Avg JEV decision</small>
+                    <b>
+                      {summary.count
+                        ? formatLatency(summary.averageDecisionTime)
+                        : "—"}
                     </b>
                   </div>
                 </div>
@@ -1847,7 +1849,7 @@ export default function App() {
                     <th>Confidence</th>
                     <th>Route</th>
                     <th>Cost Δ</th>
-                    <th>Time Δ</th>
+                    <th>JEV latency</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1875,11 +1877,7 @@ export default function App() {
                           {deltaText(item.costDelta)}
                         </span>
                       </td>
-                      <td>
-                        <span className={item.timeDelta >= 0 ? "delta-good" : "delta-bad"}>
-                          {timeDeltaText(item.timeDelta)}
-                        </span>
-                      </td>
+                      <td>{formatLatency(item.decisionTime)}</td>
                     </tr>
                   ))}
                 </tbody>
