@@ -178,9 +178,8 @@ function Timeline({
     kind === "route"
       ? [
           { label: "Prompt received", at: 0.04 },
-          { label: "JEV decision", at: decision },
-          { label: "Model routed", at: decision + 0.18 },
-          { label: "Response complete", at: total }
+          { label: "JEV analyzing", at: Math.max(0.08, decision * 0.45) },
+          { label: "Routing decision ready", at: decision }
         ]
       : [
           { label: "Prompt received", at: 0.04 },
