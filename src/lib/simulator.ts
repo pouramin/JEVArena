@@ -109,7 +109,7 @@ export function analyzePrompt(prompt: string): Analysis {
   let confidence: number;
   let probabilities: Record<Tier, number>;
 
-  if (hardCount >= 1 || (mediumCount >= 2 && prompt.length > 320)) {
+  if (hardCount >= 1) {
     complexity = "Hard";
     tier = "strong";
     confidence = hardCount >= 2 ? 95 : 91;
