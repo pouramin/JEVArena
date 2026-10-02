@@ -470,15 +470,39 @@ export default function App() {
     phase === "done" ||
     (phase === "running" && elapsed >= livePlan.direct.totalSeconds);
 
-  const routeCost =
-    phase === "idle" || phase === "countdown"
-      ? 0
-      : livePlan.route.totalCost * routeProgress;
-
   const directCost =
     phase === "idle" || phase === "countdown"
       ? 0
       : livePlan.direct.totalCost * directProgress;
+
+  const jevDecisionCostLive =
+    phase === "idle" || phase === "countdown"
+      ? 0
+      : livePlan.route.jevCost *
+        Math.min(
+          livePlan.route.decisionSeconds
+            ? elapsed / livePlan.route.decisionSeconds
+            : 1,
+          1
+        );
+
+  const routedModelCostLive =
+    phase === "idle" || phase === "countdown" || !decisionVisible
+      ? 0
+      : livePlan.route.modelCost *
+        Math.min(
+          Math.max(
+            0,
+            (elapsed - livePlan.route.decisionSeconds) /
+              Math.max(
+                0.001,
+                livePlan.route.totalSeconds - livePlan.route.decisionSeconds
+              )
+          ),
+          1
+        );
+
+  const totalRouteCostLive = jevDecisionCostLive + routedModelCostLive;
 
   const routeSaving =
     percentageDelta(livePlan.direct.totalCost, livePlan.route.totalCost);
@@ -728,6 +752,8 @@ export default function App() {
       "Confidence %",
       "Routed Model",
       "Direct Model",
+      "JEV Decision Cost USD",
+      "Routed Model Cost USD",
       "JEV Route Cost USD",
       "Direct Cost USD",
       "Cost Delta vs Direct %",
@@ -749,6 +775,8 @@ export default function App() {
       item.confidence,
       item.routedModel,
       item.directModel,
+      item.jevDecisionCost.toFixed(8),
+      item.routedModelCost.toFixed(8),
       item.routeCost.toFixed(8),
       item.directCost.toFixed(8),
       item.costDelta.toFixed(2),
@@ -775,6 +803,8 @@ export default function App() {
         " / Opus " +
         batchTotals.distribution.opus,
       directModel.name,
+      batchTotals.jevDecisionCostTotal.toFixed(8),
+      batchTotals.routedModelCostTotal.toFixed(8),
       batchTotals.routeCostTotal.toFixed(8),
       batchTotals.directCostTotal.toFixed(8),
       batchTotals.costDelta.toFixed(2),
@@ -860,11 +890,12 @@ export default function App() {
               : "Sample 8 or 24 prompts from a 1,500-prompt pool."}
           </h1>
         </div>
-        <p>
-          {workspaceMode === "single"
-            ? "JEV chooses the model on the left. You choose the direct baseline on the right. Cost and latency race in real time."
-            : ""}
-        </p>
+        {workspaceMode === "single" ? (
+          <p>
+            JEV chooses the model on the left. You choose the direct baseline on
+            the right. Cost and latency race in real time.
+          </p>
+        ) : null}
       </section>
 
       <div className="workspace-switch" aria-label="Test type">
@@ -1010,7 +1041,7 @@ export default function App() {
               )}
             </div>
 
-            <div className="metrics-grid">
+            <div className="metrics-grid single-router-metrics">
               <Metric
                 label="JEV DECISION"
                 value={formatLatency(
@@ -1021,16 +1052,24 @@ export default function App() {
                 sub="prompt received → route selected"
                 accent="jev"
               />
-              <Metric
-                label="COST"
-                value={formatMoney(routeCost)}
-                sub={
-                  decisionVisible
-                    ? formatMoney(livePlan.route.jevCost) + " JEV"
-                    : "route total"
-                }
-                accent="jev"
-              />
+            </div>
+
+            <div className="cost-breakdown-grid">
+              <div className="cost-breakdown-item jev-only">
+                <span>JEV DECISION COST</span>
+                <strong>{formatMoney(jevDecisionCostLive)}</strong>
+                <small>router only</small>
+              </div>
+              <div className="cost-breakdown-item routed-models">
+                <span>ROUTED MODEL COST</span>
+                <strong>{formatMoney(routedModelCostLive)}</strong>
+                <small>{decisionVisible ? livePlan.route.model.compactName : "waiting for route"}</small>
+              </div>
+              <div className="cost-breakdown-item total-route">
+                <span>TOTAL ROUTE COST</span>
+                <strong>{formatMoney(totalRouteCostLive)}</strong>
+                <small>JEV + selected model</small>
+              </div>
             </div>
 
             <Timeline
@@ -1396,10 +1435,10 @@ export default function App() {
                 <strong>{batchResults.length} decisions</strong>
               </div>
               {[
-                ["Haiku", batchTotals.distribution.haiku],
-                ["Sonnet", batchTotals.distribution.sonnet],
-                ["Opus", batchTotals.distribution.opus]
-              ].map(([label, count]) => {
+                ["Haiku", "Easy", batchTotals.distribution.haiku, "easy"],
+                ["Sonnet", "Medium", batchTotals.distribution.sonnet, "medium"],
+                ["Opus", "Hard", batchTotals.distribution.opus, "hard"]
+              ].map(([label, difficulty, count, tone]) => {
                 const value = Number(count);
                 const pct = batchResults.length
                   ? (value / batchResults.length) * 100
@@ -1409,13 +1448,22 @@ export default function App() {
                 } as CSSProperties;
 
                 return (
-                  <div className="distribution-row" key={String(label)}>
+                  <div
+                    className={"distribution-row distribution-" + tone}
+                    key={String(label)}
+                  >
                     <div>
-                      <span>{label}</span>
+                      <span>
+                        {label}
+                        <small>{difficulty}</small>
+                      </span>
                       <strong>{value}</strong>
                     </div>
                     <div className="probability-track">
-                      <span className="probability-fill batch-fill" style={style} />
+                      <span
+                        className={"probability-fill distribution-fill " + tone}
+                        style={style}
+                      />
                     </div>
                   </div>
                 );
@@ -1477,19 +1525,31 @@ export default function App() {
               </div>
             </div>
 
-            <div className="metrics-grid">
+            <div className="metrics-grid single-router-metrics">
               <Metric
                 label="JEV DECISION"
                 value={formatLatency(batchTotals.averageDecisionTime)}
                 sub={"avg · " + formatLatency(batchTotals.decisionTimeTotal) + " total"}
                 accent="jev"
               />
-              <Metric
-                label="TOTAL COST"
-                value={formatMoney(batchTotals.routeCostTotal)}
-                sub="cumulative route cost"
-                accent="jev"
-              />
+            </div>
+
+            <div className="cost-breakdown-grid batch-cost-breakdown">
+              <div className="cost-breakdown-item jev-only">
+                <span>JEV DECISION COST</span>
+                <strong>{formatMoney(batchTotals.jevDecisionCostTotal)}</strong>
+                <small>router only</small>
+              </div>
+              <div className="cost-breakdown-item routed-models">
+                <span>ROUTED MODELS COST</span>
+                <strong>{formatMoney(batchTotals.routedModelCostTotal)}</strong>
+                <small>Haiku + Sonnet + Opus</small>
+              </div>
+              <div className="cost-breakdown-item total-route">
+                <span>TOTAL ROUTE COST</span>
+                <strong>{formatMoney(batchTotals.routeCostTotal)}</strong>
+                <small>JEV + routed models</small>
+              </div>
             </div>
 
             <div className="batch-detail-list">
