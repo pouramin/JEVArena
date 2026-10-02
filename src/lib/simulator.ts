@@ -47,117 +47,125 @@ const includesAny = (source: string, words: string[]) =>
 
 export function analyzePrompt(prompt: string): Analysis {
   const source = prompt.toLowerCase();
-  let score = 0;
 
   const hardSignals = [
-    "security",
-    "authentication",
     "race condition",
     "concurrent",
-    "architecture",
-    "migration",
-    "root cause",
     "distributed",
-    "database",
-    "production",
-    "multi-file",
-    "multi file",
+    "architecture",
+    "schema migration",
+    "data migration",
     "deadlock",
     "memory leak",
-    "consistency",
-    "privilege",
     "rollback",
-    "cross-service"
+    "cross-service",
+    "multi-file",
+    "multi file",
+    "root cause",
+    "production incident",
+    "consistency failure",
+    "multiple services",
+    "multiple modules"
   ];
 
   const mediumSignals = [
-    "bug",
-    "fix",
-    "refactor",
-    "feature",
-    "test",
-    "validation",
-    "api",
-    "component",
-    "implement",
+    "validation bug",
+    "retry behavior",
     "pagination",
-    "cache",
-    "retry",
-    "query"
+    "cache invalidation",
+    "stale cache",
+    "normalize",
+    "feature flag",
+    "query optimization",
+    "api error",
+    "async state",
+    "regression test",
+    "refactor the",
+    "implement pagination",
+    "preserve current behavior"
   ];
 
   const easySignals = [
-    "typo",
-    "rename",
-    "readme",
-    "format",
-    "find",
-    "comment",
-    "copy",
-    "unused import",
-    "label",
-    "string"
+    "fix a typo",
+    "rename one local",
+    "remove the unused import",
+    "update one short ui label",
+    "format the configuration object",
+    "find where the exported helper",
+    "add one concise comment",
+    "replace one duplicated inline string union",
+    "rename one test description",
+    "replace the duplicated string literal",
+    "do not change anything else",
+    "do not modify files"
   ];
 
-  if (includesAny(source, hardSignals)) score += 3;
-  if (includesAny(source, mediumSignals)) score += 2;
-  if (includesAny(source, easySignals)) score -= 1;
-  if (prompt.length > 280) score += 1;
-  if (prompt.length > 650) score += 1;
+  const hardCount = hardSignals.filter((signal) => source.includes(signal)).length;
+  const mediumCount = mediumSignals.filter((signal) => source.includes(signal)).length;
+  const easyCount = easySignals.filter((signal) => source.includes(signal)).length;
 
-  if (score >= 4) {
-    return {
-      complexity: "Hard",
-      tier: "strong",
-      confidence: 92,
-      probabilities: { fast: 4, balanced: 12, strong: 84 },
-      signals: [
-        { label: "Complexity", value: "High" },
-        { label: "Context depth", value: prompt.length > 500 ? "High" : "Medium" },
-        {
-          label: "Risk",
-          value: includesAny(source, [
-            "security",
-            "authentication",
-            "database",
-            "production",
-            "privilege"
-          ])
-            ? "Elevated"
-            : "Normal"
-        }
-      ]
-    };
-  }
+  let complexity: Complexity;
+  let tier: Tier;
+  let confidence: number;
+  let probabilities: Record<Tier, number>;
 
-  if (score >= 1) {
-    return {
-      complexity: "Medium",
-      tier: "balanced",
-      confidence: 89,
-      probabilities: { fast: 10, balanced: 81, strong: 9 },
-      signals: [
-        { label: "Complexity", value: "Medium" },
-        { label: "Context depth", value: "Medium" },
-        {
-          label: "Risk",
-          value: includesAny(source, ["security", "authentication"])
-            ? "Elevated"
-            : "Normal"
-        }
-      ]
-    };
+  if (hardCount >= 1 || (mediumCount >= 2 && prompt.length > 320)) {
+    complexity = "Hard";
+    tier = "strong";
+    confidence = hardCount >= 2 ? 95 : 91;
+    probabilities = { fast: 3, balanced: 10, strong: 87 };
+  } else if (easyCount >= 1 && hardCount === 0) {
+    complexity = "Easy";
+    tier = "fast";
+    confidence = easyCount >= 2 ? 97 : 93;
+    probabilities = { fast: 90, balanced: 8, strong: 2 };
+  } else if (mediumCount >= 1 || prompt.length > 260) {
+    complexity = "Medium";
+    tier = "balanced";
+    confidence = 89;
+    probabilities = { fast: 10, balanced: 81, strong: 9 };
+  } else {
+    complexity = "Easy";
+    tier = "fast";
+    confidence = 88;
+    probabilities = { fast: 84, balanced: 13, strong: 3 };
   }
 
   return {
-    complexity: "Easy",
-    tier: "fast",
-    confidence: 95,
-    probabilities: { fast: 91, balanced: 7, strong: 2 },
+    complexity,
+    tier,
+    confidence,
+    probabilities,
     signals: [
-      { label: "Complexity", value: "Low" },
-      { label: "Context depth", value: "Low" },
-      { label: "Risk", value: "Low" }
+      {
+        label: "Complexity",
+        value:
+          complexity === "Hard"
+            ? "High"
+            : complexity === "Medium"
+              ? "Medium"
+              : "Low"
+      },
+      {
+        label: "Context depth",
+        value:
+          prompt.length > 500
+            ? "High"
+            : prompt.length > 240
+              ? "Medium"
+              : "Low"
+      },
+      {
+        label: "Routing basis",
+        value:
+          hardCount > 0
+            ? "High-risk signals"
+            : easyCount > 0
+              ? "Bounded task"
+              : mediumCount > 0
+                ? "Multi-step task"
+                : "Low complexity"
+      }
     ]
   };
 }
