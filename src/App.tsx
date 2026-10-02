@@ -34,6 +34,8 @@ type BatchResult = {
   confidence: number;
   routedModel: string;
   directModel: string;
+  jevDecisionCost: number;
+  routedModelCost: number;
   routeCost: number;
   directCost: number;
   costDelta: number;
@@ -416,6 +418,8 @@ export default function App() {
         confidence: plan.route.analysis.confidence,
         routedModel: plan.route.model.name,
         directModel: plan.direct.model.name,
+        jevDecisionCost: plan.route.jevCost,
+        routedModelCost: plan.route.modelCost,
         routeCost: plan.route.totalCost,
         directCost: plan.direct.totalCost,
         costDelta: routeCostDelta,
@@ -551,6 +555,14 @@ export default function App() {
         : 0;
 
   const batchTotals = useMemo(() => {
+    const jevDecisionCostTotal = batchResults.reduce(
+      (sum, item) => sum + item.jevDecisionCost,
+      0
+    );
+    const routedModelCostTotal = batchResults.reduce(
+      (sum, item) => sum + item.routedModelCost,
+      0
+    );
     const routeCostTotal = batchResults.reduce(
       (sum, item) => sum + item.routeCost,
       0
@@ -590,6 +602,8 @@ export default function App() {
     );
 
     return {
+      jevDecisionCostTotal,
+      routedModelCostTotal,
       routeCostTotal,
       directCostTotal,
       decisionTimeTotal,
@@ -849,7 +863,7 @@ export default function App() {
         <p>
           {workspaceMode === "single"
             ? "JEV chooses the model on the left. You choose the direct baseline on the right. Cost and latency race in real time."
-            : "Choose a difficulty suite, lock a direct baseline, then let JEVArena run every case in sequence and build a comparison report."}
+            : ""}
         </p>
       </section>
 
