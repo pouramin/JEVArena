@@ -510,7 +510,15 @@ export default function App() {
   );
 
   const routingFeed = useMemo(() => {
-    const completed = batchResults.map((item, index) => ({
+    const completed: Array<{
+      key: string;
+      caseId: string;
+      title: string;
+      predicted: string;
+      confidence: number;
+      model: string;
+      status: "done" | "live";
+    }> = batchResults.map((item, index) => ({
       key: item.caseId + "-" + index,
       caseId: item.caseId,
       title: item.title,
