@@ -509,6 +509,7 @@ export default function App() {
       predicted: string;
       confidence: number;
       model: string;
+      decisionTime: number;
       status: "done" | "live";
     }> = batchResults.map((item, index) => ({
       key: item.caseId + "-" + index,
@@ -517,6 +518,7 @@ export default function App() {
       predicted: item.predicted,
       confidence: item.confidence,
       model: item.routedModel,
+      decisionTime: item.decisionTime,
       status: "done" as const
     }));
 
@@ -533,6 +535,7 @@ export default function App() {
         predicted: batchCurrentPlan.route.analysis.complexity,
         confidence: batchCurrentPlan.route.analysis.confidence,
         model: batchCurrentPlan.route.model.name,
+        decisionTime: batchCurrentPlan.route.decisionSeconds,
         status: "live" as const
       });
     }
@@ -1434,7 +1437,7 @@ export default function App() {
                       <div className="routing-prompt">
                         <strong>{item.title}</strong>
                         <small>
-                          {item.predicted} · {item.confidence}% confidence
+                          {item.predicted} · {item.confidence}% · {formatLatency(item.decisionTime)}
                         </small>
                       </div>
                       <span className="routing-arrow">→</span>
