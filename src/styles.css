@@ -2220,3 +2220,230 @@ textarea:disabled {
     grid-column: 1 / -1;
   }
 }
+
+
+/* --- Benchmark v4: live routing feed + unambiguous deltas --- */
+
+.delta-good {
+  color: #8fd9b7 !important;
+}
+
+.delta-bad {
+  color: #ff9b9b !important;
+}
+
+.routing-feed-card {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(229, 185, 78, 0.025), transparent),
+    rgba(255, 255, 255, 0.016);
+}
+
+.routing-feed-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.routing-feed-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.routing-feed-head span {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 820;
+  letter-spacing: 0.1em;
+}
+
+.routing-feed-head strong {
+  font-size: 10px;
+}
+
+.routing-feed-head small {
+  color: #77683d;
+  font-size: 8px;
+}
+
+.routing-feed-list {
+  display: grid;
+  gap: 5px;
+  max-height: 208px;
+  margin-top: 10px;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.routing-feed-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 7px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 9px;
+  background: rgba(3, 6, 11, 0.2);
+  transition:
+    border-color 180ms ease,
+    background 180ms ease,
+    transform 180ms ease;
+}
+
+.routing-feed-row.live {
+  border-color: rgba(229, 185, 78, 0.28);
+  background: rgba(229, 185, 78, 0.055);
+  transform: translateY(-1px);
+  box-shadow: 0 0 18px rgba(229, 185, 78, 0.035);
+}
+
+.routing-case {
+  display: grid;
+  place-items: center;
+  min-height: 25px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted-2);
+  font-size: 8px;
+  font-weight: 820;
+  letter-spacing: 0.05em;
+}
+
+.routing-feed-row.live .routing-case {
+  color: #f0cc73;
+  background: var(--jev-soft);
+}
+
+.routing-prompt {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.routing-prompt strong {
+  overflow: hidden;
+  color: var(--muted-2);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routing-prompt small {
+  color: var(--muted);
+  font-size: 7px;
+}
+
+.routing-arrow {
+  color: #665a37;
+  font-size: 12px;
+}
+
+.routing-model {
+  min-width: 72px;
+  padding: 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  text-align: center;
+  font-size: 8px;
+  font-weight: 780;
+  white-space: nowrap;
+}
+
+.routing-model.haiku {
+  color: #8fd9b7;
+  border-color: rgba(111, 211, 167, 0.18);
+  background: rgba(111, 211, 167, 0.06);
+}
+
+.routing-model.sonnet {
+  color: #b9c0cb;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.routing-model.opus {
+  color: #e8c978;
+  border-color: rgba(229, 185, 78, 0.18);
+  background: var(--jev-soft);
+}
+
+.routing-feed-empty {
+  min-height: 80px;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  border-radius: 9px;
+  color: #5d6776;
+  text-align: center;
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.baseline-note {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.baseline-note span {
+  color: var(--muted);
+  font-size: 7px;
+  font-weight: 820;
+  letter-spacing: 0.1em;
+}
+
+.baseline-note strong {
+  color: var(--muted-2);
+  font-size: 8px;
+  font-weight: 620;
+  line-height: 1.45;
+}
+
+.baseline-note.tier-fast {
+  border-color: rgba(111, 211, 167, 0.14);
+}
+
+.baseline-note.tier-strong {
+  border-color: rgba(229, 185, 78, 0.14);
+}
+
+.summary-card .delta-good,
+.summary-card .delta-bad {
+  font-size: 16px;
+  line-height: 1.15;
+}
+
+.level-card .delta-good,
+.level-card .delta-bad {
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.batch-table .delta-good,
+.batch-table .delta-bad {
+  font-size: 8px;
+  font-weight: 740;
+}
+
+@media (max-width: 760px) {
+  .routing-feed-row {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+  }
+
+  .routing-arrow {
+    display: none;
+  }
+
+  .routing-model {
+    min-width: 64px;
+  }
+}
