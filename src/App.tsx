@@ -479,9 +479,6 @@ export default function App() {
 
   const routeSaving =
     percentageDelta(livePlan.direct.totalCost, livePlan.route.totalCost);
-  const timeSaving =
-    percentageDelta(livePlan.direct.totalSeconds, livePlan.route.totalSeconds);
-
   const sameModel = livePlan.route.model.id === livePlan.direct.model.id;
 
   const verdictHeadline = sameModel
@@ -1294,15 +1291,9 @@ export default function App() {
               </div>
 
               <div className="saving-card">
-                <span>TIME DELTA</span>
-                <strong>
-                  {(timeSaving >= 0 ? "−" : "+") +
-                    Math.abs(timeSaving).toFixed(1) +
-                    "%"}
-                </strong>
-                <small>
-                  {timeSaving >= 0 ? "with JEV routing" : "routing overhead"}
-                </small>
+                <span>JEV DECISION</span>
+                <strong>{formatLatency(livePlan.route.decisionSeconds)}</strong>
+                <small>router latency only · not model runtime</small>
               </div>
             </div>
 
