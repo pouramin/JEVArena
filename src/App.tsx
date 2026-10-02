@@ -94,6 +94,18 @@ function percentageDelta(baseline: number, candidate: number) {
   return ((baseline - candidate) / baseline) * 100;
 }
 
+function deltaText(delta: number) {
+  if (Math.abs(delta) < 0.05) return "0.0% · tied";
+  return Math.abs(delta).toFixed(1) + "% · " +
+    (delta > 0 ? "JEV cheaper" : "JEV more expensive");
+}
+
+function timeDeltaText(delta: number) {
+  if (Math.abs(delta) < 0.05) return "0.0% · tied";
+  return Math.abs(delta).toFixed(1) + "% · " +
+    (delta > 0 ? "JEV faster" : "JEV slower");
+}
+
 function csvEscape(value: string | number | boolean) {
   const text = String(value);
   return '"' + text.replace(/"/g, '""') + '"';
@@ -429,7 +441,7 @@ export default function App() {
       } else {
         setBatchIndex((index) => index + 1);
       }
-    }, 360);
+    }, 650);
 
     return () => window.clearTimeout(timer);
   }, [batchPhase, batchIndex, selectedCases, directModel]);
@@ -489,6 +501,53 @@ export default function App() {
   } as CSSProperties;
 
   const batchCurrent = selectedCases[Math.min(batchIndex, selectedCases.length - 1)];
+  const batchCurrentPlan = useMemo(
+    () =>
+      batchCurrent
+        ? makeRunPlan(batchCurrent.prompt, directModel, batchCurrent.workload)
+        : null,
+    [batchCurrent, directModel]
+  );
+
+  const routingFeed = useMemo(() => {
+    const completed: Array<{
+      key: string;
+      caseId: string;
+      title: string;
+      predicted: string;
+      confidence: number;
+      model: string;
+      status: "done" | "live";
+    }> = batchResults.map((item, index) => ({
+      key: item.caseId + "-" + index,
+      caseId: item.caseId,
+      title: item.title,
+      predicted: item.predicted,
+      confidence: item.confidence,
+      model: item.routedModel,
+      status: "done" as const
+    }));
+
+    if (
+      batchPhase === "running" &&
+      batchCurrent &&
+      batchCurrentPlan &&
+      !completed.some((item) => item.caseId === batchCurrent.id)
+    ) {
+      completed.push({
+        key: batchCurrent.id + "-live",
+        caseId: batchCurrent.id,
+        title: batchCurrent.title,
+        predicted: batchCurrentPlan.route.analysis.complexity,
+        confidence: batchCurrentPlan.route.analysis.confidence,
+        model: batchCurrentPlan.route.model.name,
+        status: "live" as const
+      });
+    }
+
+    return completed.slice(-8).reverse();
+  }, [batchResults, batchPhase, batchCurrent, batchCurrentPlan]);
+
   const batchProgress =
     batchPhase === "done"
       ? 100
@@ -653,10 +712,10 @@ export default function App() {
       "Direct Model",
       "JEV Route Cost USD",
       "Direct Cost USD",
-      "Cost Saving %",
+      "Cost Delta vs Direct %",
       "JEV Route Time s",
       "Direct Time s",
-      "Time Saving %",
+      "Time Delta vs Direct %",
       "Routing Match",
       "Input Tokens",
       "Output Tokens",
@@ -1353,6 +1412,61 @@ export default function App() {
               })}
             </div>
 
+            <div className="routing-feed-card">
+              <div className="routing-feed-head">
+                <div>
+                  <span>LIVE ROUTING FEED</span>
+                  <strong>Prompt → JEV → Model</strong>
+                </div>
+                <small>
+                  {batchPhase === "running"
+                    ? "Routing now"
+                    : batchPhase === "done"
+                      ? "Last decisions"
+                      : "Starts with benchmark"}
+                </small>
+              </div>
+
+              <div className="routing-feed-list">
+                {routingFeed.length ? (
+                  routingFeed.map((item) => (
+                    <div
+                      className={
+                        "routing-feed-row" +
+                        (item.status === "live" ? " live" : "")
+                      }
+                      key={item.key}
+                    >
+                      <span className="routing-case">{item.caseId}</span>
+                      <div className="routing-prompt">
+                        <strong>{item.title}</strong>
+                        <small>
+                          {item.predicted} · {item.confidence}% confidence
+                        </small>
+                      </div>
+                      <span className="routing-arrow">→</span>
+                      <span
+                        className={
+                          "routing-model " +
+                          (item.model.includes("Haiku")
+                            ? "haiku"
+                            : item.model.includes("Sonnet")
+                              ? "sonnet"
+                              : "opus")
+                        }
+                      >
+                        {item.model.replace("Claude ", "")}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="routing-feed-empty">
+                    Each prompt will appear here with the model JEV routes it to.
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="metrics-grid">
               <Metric
                 label="TOTAL TIME"
@@ -1574,6 +1688,17 @@ export default function App() {
               onModel={selectDirectModel}
             />
 
+            <div className={"baseline-note tier-" + directModel.tier}>
+              <span>BASELINE CONTEXT</span>
+              <strong>
+                {directModel.tier === "fast"
+                  ? "Fast/cheap baseline: routing may cost more when JEV escalates."
+                  : directModel.tier === "strong"
+                    ? "Strong baseline: routing can save cost by avoiding this model on simpler tasks."
+                    : "Balanced baseline: routing trades up or down by task difficulty."}
+              </strong>
+            </div>
+
             <div className="metrics-grid">
               <Metric
                 label="TOTAL TIME"
@@ -1618,9 +1743,9 @@ export default function App() {
                 <span className="lane-kicker">SUITE VERDICT</span>
                 <h2>
                   {batchTotals.costDelta > 0.2
-                    ? "JEV routing reduced total simulated cost."
+                    ? "JEV routing was cheaper than the direct baseline."
                     : batchTotals.costDelta < -0.2
-                      ? "The direct baseline used less simulated cost."
+                      ? "JEV routing was more expensive than the direct baseline."
                       : "Total simulated cost was effectively tied."}
                 </h2>
               </div>
@@ -1648,11 +1773,9 @@ export default function App() {
 
             <div className="batch-summary-grid">
               <div className="summary-card">
-                <span>COST SAVING</span>
-                <strong>
-                  {(batchTotals.costDelta >= 0 ? "−" : "+") +
-                    Math.abs(batchTotals.costDelta).toFixed(1) +
-                    "%"}
+                <span>COST VS DIRECT</span>
+                <strong className={batchTotals.costDelta >= 0 ? "delta-good" : "delta-bad"}>
+                  {deltaText(batchTotals.costDelta)}
                 </strong>
                 <small>
                   {formatMoney(batchTotals.routeCostTotal)} vs{" "}
@@ -1660,11 +1783,9 @@ export default function App() {
                 </small>
               </div>
               <div className="summary-card">
-                <span>TIME DELTA</span>
-                <strong>
-                  {(batchTotals.timeDelta >= 0 ? "−" : "+") +
-                    Math.abs(batchTotals.timeDelta).toFixed(1) +
-                    "%"}
+                <span>TIME VS DIRECT</span>
+                <strong className={batchTotals.timeDelta >= 0 ? "delta-good" : "delta-bad"}>
+                  {timeDeltaText(batchTotals.timeDelta)}
                 </strong>
                 <small>
                   {formatTime(batchTotals.routeTimeTotal)} vs{" "}
@@ -1701,23 +1822,15 @@ export default function App() {
                     <strong>{summary.count} cases</strong>
                   </div>
                   <div>
-                    <small>Cost saving</small>
-                    <b>
-                      {summary.count
-                        ? (summary.costDelta >= 0 ? "−" : "+") +
-                          Math.abs(summary.costDelta).toFixed(1) +
-                          "%"
-                        : "—"}
+                    <small>Cost vs direct</small>
+                    <b className={summary.costDelta >= 0 ? "delta-good" : "delta-bad"}>
+                      {summary.count ? deltaText(summary.costDelta) : "—"}
                     </b>
                   </div>
                   <div>
-                    <small>Time delta</small>
-                    <b>
-                      {summary.count
-                        ? (summary.timeDelta >= 0 ? "−" : "+") +
-                          Math.abs(summary.timeDelta).toFixed(1) +
-                          "%"
-                        : "—"}
+                    <small>Time vs direct</small>
+                    <b className={summary.timeDelta >= 0 ? "delta-good" : "delta-bad"}>
+                      {summary.count ? timeDeltaText(summary.timeDelta) : "—"}
                     </b>
                   </div>
                 </div>
@@ -1758,14 +1871,14 @@ export default function App() {
                       <td>{item.confidence}%</td>
                       <td>{item.routedModel.replace("Claude ", "")}</td>
                       <td>
-                        {(item.costDelta >= 0 ? "−" : "+") +
-                          Math.abs(item.costDelta).toFixed(1) +
-                          "%"}
+                        <span className={item.costDelta >= 0 ? "delta-good" : "delta-bad"}>
+                          {deltaText(item.costDelta)}
+                        </span>
                       </td>
                       <td>
-                        {(item.timeDelta >= 0 ? "−" : "+") +
-                          Math.abs(item.timeDelta).toFixed(1) +
-                          "%"}
+                        <span className={item.timeDelta >= 0 ? "delta-good" : "delta-bad"}>
+                          {timeDeltaText(item.timeDelta)}
+                        </span>
                       </td>
                     </tr>
                   ))}
