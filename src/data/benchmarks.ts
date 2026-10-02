@@ -69,27 +69,80 @@ const TARGETS = [
   "file upload flow"
 ];
 
-const CONTEXTS = [
-  "The project already has tests for the surrounding behavior.",
-  "Keep existing public interfaces stable.",
+const EASY_CONTEXTS = [
+  "Keep the change local to the named file.",
+  "Do not add tests for this tiny edit.",
   "Avoid unrelated cleanup.",
-  "Use the conventions already present in the repository.",
-  "Preserve backwards compatibility.",
-  "Do not introduce a new dependency.",
-  "Keep the change focused and reviewable.",
-  "Existing callers must continue to work unchanged."
+  "Preserve behavior exactly.",
+  "Use the existing style in the file.",
+  "Do not introduce a new dependency."
 ];
 
-const EXTRA_CONSTRAINTS = [
-  "Include a focused test for the changed behavior.",
-  "Do not change unrelated files.",
-  "Keep error messages backwards compatible.",
+const EASY_CONSTRAINTS = [
+  "Change only what is necessary.",
+  "Do not touch unrelated files.",
+  "Keep the diff minimal.",
+  "Do not refactor surrounding code.",
+  "Leave public behavior unchanged.",
+  "Return only the requested change."
+];
+
+const MEDIUM_CONTEXTS = [
+  "The project already has tests for the surrounding behavior.",
+  "Keep existing public interfaces stable.",
+  "Use the conventions already present in the repository.",
+  "Preserve backwards compatibility.",
+  "Existing callers must continue to work unchanged.",
+  "Keep the change focused and reviewable."
+];
+
+const MEDIUM_CONSTRAINTS = [
+  "Include a focused regression test.",
   "Preserve the current API response shape.",
   "Reuse existing helpers where possible.",
   "Do not change environment configuration.",
   "Keep logging behavior unchanged.",
-  "Avoid changing public types unless required."
+  "Avoid unrelated cleanup."
 ];
+
+const HARD_CONTEXTS = [
+  "The issue crosses multiple files and execution boundaries.",
+  "The failure is intermittent and appears under realistic load.",
+  "Backwards compatibility matters during the rollout.",
+  "The system has existing tests but no coverage for this failure mode.",
+  "Multiple application instances can observe the affected state.",
+  "The change must remain safe during partial deployment."
+];
+
+const HARD_CONSTRAINTS = [
+  "Add regression coverage for the identified failure mode.",
+  "Document the root cause before implementing the fix.",
+  "Include a safe rollout or rollback strategy where relevant.",
+  "Preserve existing public interfaces unless the fix requires otherwise.",
+  "Avoid masking the symptom without addressing the root cause.",
+  "Keep data consistency intact during failures."
+];
+
+function contextFor(level: BenchmarkLevel, random: RandomSource) {
+  if (level === "Easy") {
+    return {
+      context: pick(EASY_CONTEXTS, random),
+      extra: pick(EASY_CONSTRAINTS, random)
+    };
+  }
+
+  if (level === "Medium") {
+    return {
+      context: pick(MEDIUM_CONTEXTS, random),
+      extra: pick(MEDIUM_CONSTRAINTS, random)
+    };
+  }
+
+  return {
+    context: pick(HARD_CONTEXTS, random),
+    extra: pick(HARD_CONSTRAINTS, random)
+  };
+}
 
 function mulberry32(seed: number): RandomSource {
   let value = seed >>> 0;
@@ -147,8 +200,7 @@ function makeCase(
 ): BenchmarkCase {
   const action = pick(actionsFor(level), random);
   const target = pick(TARGETS, random);
-  const context = pick(CONTEXTS, random);
-  const extra = pick(EXTRA_CONSTRAINTS, random);
+  const { context, extra } = contextFor(level, random);
   const prompt =
     action[1].replace("{target}", target) + " " + context + " " + extra;
   const prefix = level === "Easy" ? "E" : level === "Medium" ? "M" : "H";
