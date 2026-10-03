@@ -16,14 +16,18 @@ import {
   createBenchmarkSeed,
   generateBenchmarkSuite,
   suiteSize,
-  type BenchmarkScope
+  type BenchmarkScope,
+  type WorkloadMix
 } from "./data/benchmarks";
-import { makeRunPlan, type RunPlan } from "./lib/simulator";
+import { makeRunPlan, type DecisionEngine, type RunPlan } from "./lib/simulator";
 
 type Phase = "idle" | "countdown" | "running" | "done";
 type Expectation = "Auto" | "Easy" | "Medium" | "Hard";
 type WorkspaceMode = "single" | "batch";
 type BatchPhase = "idle" | "running" | "done";
+type WorkloadPreset = "Balanced" | "Light" | "Developer" | "Custom";
+type StrategyKey = "jev" | "haiku" | "sonnet" | "opus";
+type StrategyPoint = { run: number; jev: number; haiku: number; sonnet: number; opus: number };
 
 type BatchResult = {
   caseId: string;
@@ -64,6 +68,59 @@ const PRESETS = [
   }
 ];
 
+const WORKLOAD_PRESETS: Record<Exclude<WorkloadPreset, "Custom">, WorkloadMix> = {
+  Balanced: { easy: 8, medium: 8, hard: 8 },
+  Light: { easy: 14, medium: 7, hard: 3 },
+  Developer: { easy: 6, medium: 11, hard: 7 }
+};
+
+const MAX_WORKLOAD_PROMPTS = 100;
+
+const ENGINE_META: Record<
+  DecisionEngine,
+  {
+    label: string;
+    icon: string;
+    routeTitle: string;
+    aggregateTitle: string;
+    decisionLabel: string;
+    decisionCostLabel: string;
+    profileKicker: string;
+    profileValue: string;
+    profileNote: string;
+  }
+> = {
+  jev: {
+    label: "JEV",
+    icon: "J",
+    routeTitle: "JEV Route",
+    aggregateTitle: "JEV Aggregate",
+    decisionLabel: "JEV DECISION",
+    decisionCostLabel: "JEV DECISION COST",
+    profileKicker: "SIMULATION PROFILE",
+    profileValue: "Variable simulated latency · $0.042 / 1M input",
+    profileNote: "Routing decision and timing are simulated"
+  },
+  laya: {
+    label: "Laya",
+    icon: "L",
+    routeTitle: "Laya Route",
+    aggregateTitle: "Laya Aggregate",
+    decisionLabel: "LAYA DECISION",
+    decisionCostLabel: "LAYA DECISION COST",
+    profileKicker: "PUBLISHED PROFILE",
+    profileValue: "39.5 ms · Tesla T4 · $0 API fee",
+    profileNote: "BENCHMARKS.md · self-hosted; hardware/electricity excluded · routing choice simulated"
+  }
+};
+
+const STRATEGY_META: Record<StrategyKey, { label: string; className: string }> = {
+  jev: { label: "JEV Route", className: "jev" },
+  haiku: { label: "Always Haiku", className: "haiku" },
+  sonnet: { label: "Always Sonnet", className: "sonnet" },
+  opus: { label: "Always Opus", className: "opus" }
+};
+
 const tierLabel: Record<Tier, string> = {
   fast: "FAST",
   balanced: "BALANCED",
@@ -85,8 +142,8 @@ function formatTokens(value: number) {
   return String(value);
 }
 
-function deltaWinner(delta: number) {
-  if (delta > 0.2) return "JEV Route";
+function deltaWinner(delta: number, routeLabel = "JEV Route") {
+  if (delta > 0.2) return routeLabel;
   if (delta < -0.2) return "Direct";
   return "Tie";
 }
@@ -96,14 +153,21 @@ function percentageDelta(baseline: number, candidate: number) {
   return ((baseline - candidate) / baseline) * 100;
 }
 
-function deltaText(delta: number) {
+function deltaText(delta: number, engineLabel = "JEV") {
   if (Math.abs(delta) < 0.05) return "0.0% · tied";
   return Math.abs(delta).toFixed(1) + "% · " +
-    (delta > 0 ? "JEV cheaper" : "JEV more expensive");
+    (delta > 0 ? engineLabel + " cheaper" : engineLabel + " more expensive");
 }
 
 function formatLatency(seconds: number) {
-  return (seconds * 1000).toFixed(0) + " ms";
+  const ms = seconds * 1000;
+  return (ms < 100 ? ms.toFixed(1) : ms.toFixed(0)) + " ms";
+}
+
+function formatDecisionTotal(seconds: number) {
+  return seconds >= 1
+    ? seconds.toFixed(3) + " s"
+    : formatLatency(seconds);
 }
 
 function csvEscape(value: string | number | boolean) {
@@ -166,12 +230,14 @@ function Timeline({
   kind,
   elapsed,
   plan,
-  done
+  done,
+  engineLabel = "JEV"
 }: {
   kind: "route" | "direct";
   elapsed: number;
   plan: RunPlan;
   done: boolean;
+  engineLabel?: string;
 }) {
   const route = plan.route;
   const total = kind === "route" ? route.totalSeconds : plan.direct.totalSeconds;
@@ -180,7 +246,7 @@ function Timeline({
     kind === "route"
       ? [
           { label: "Prompt received", at: 0.04 },
-          { label: "JEV analyzing", at: Math.max(0.08, decision * 0.45) },
+          { label: engineLabel + " analyzing", at: Math.max(0.02, decision * 0.45) },
           { label: "Routing decision ready", at: decision }
         ]
       : [
@@ -325,8 +391,123 @@ function DirectSelector({
   );
 }
 
+function DecisionEngineSwitch({
+  engine,
+  locked,
+  onEngine
+}: {
+  engine: DecisionEngine;
+  locked: boolean;
+  onEngine: (engine: DecisionEngine) => void;
+}) {
+  const meta = ENGINE_META[engine];
+
+  return (
+    <div className="engine-control">
+      <div className="provider-switch engine-switch" aria-label="Decision engine">
+        <button
+          type="button"
+          className={engine === "jev" ? "active" : ""}
+          disabled={locked}
+          onClick={() => onEngine("jev")}
+        >
+          JEV
+        </button>
+        <button
+          type="button"
+          className={engine === "laya" ? "active" : ""}
+          disabled={locked}
+          onClick={() => onEngine("laya")}
+        >
+          Laya
+        </button>
+      </div>
+      <div className={"engine-profile engine-profile-" + engine}>
+        <span>{meta.profileKicker}</span>
+        <strong>{meta.profileValue}</strong>
+        <small>{meta.profileNote}</small>
+      </div>
+    </div>
+  );
+}
+
+function CostRaceChart({
+  points,
+  totalRuns,
+  engineLabel
+}: {
+  points: StrategyPoint[];
+  totalRuns: number;
+  engineLabel: string;
+}) {
+  const width = 720;
+  const height = 230;
+  const pad = { left: 44, right: 18, top: 18, bottom: 32 };
+  const maxRun = Math.max(1, totalRuns);
+  const maxCost = Math.max(0.001, ...points.flatMap((point) => [point.jev, point.haiku, point.sonnet, point.opus]));
+
+  const x = (run: number) =>
+    pad.left + (run / maxRun) * (width - pad.left - pad.right);
+  const y = (cost: number) =>
+    height - pad.bottom - (cost / maxCost) * (height - pad.top - pad.bottom);
+
+  const polyline = (key: StrategyKey) =>
+    points.map((point) => `${x(point.run)},${y(point[key])}`).join(" ");
+
+  const grid = [0.25, 0.5, 0.75, 1];
+
+  return (
+    <div className="cost-race-chart">
+      <div className="cost-race-head">
+        <div>
+          <span>CUMULATIVE COST</span>
+          <strong>Same prompts · four strategies</strong>
+        </div>
+        <small>{points[points.length - 1]?.run ?? 0}/{totalRuns} runs</small>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Cumulative strategy cost chart">
+        {grid.map((ratio) => (
+          <g key={ratio}>
+            <line
+              className="chart-grid-line"
+              x1={pad.left}
+              x2={width - pad.right}
+              y1={y(maxCost * ratio)}
+              y2={y(maxCost * ratio)}
+            />
+            <text className="chart-axis-label" x={4} y={y(maxCost * ratio) + 4}>
+              {formatMoney(maxCost * ratio)}
+            </text>
+          </g>
+        ))}
+        {(["jev", "haiku", "sonnet", "opus"] as StrategyKey[]).map((key) => (
+          <polyline
+            key={key}
+            className={`cost-line ${STRATEGY_META[key].className}`}
+            points={polyline(key)}
+            fill="none"
+          />
+        ))}
+        <text className="chart-axis-label chart-axis-end" x={width - pad.right} y={height - 8}>
+          {maxRun} prompts
+        </text>
+      </svg>
+      <div className="cost-race-legend">
+        {(["jev", "haiku", "sonnet", "opus"] as StrategyKey[]).map((key) => (
+          <div key={key} className={`legend-item ${STRATEGY_META[key].className}`}>
+            <span />
+            <strong>{key === "jev" ? engineLabel + " Route" : STRATEGY_META[key].label}</strong>
+            <b>{formatMoney(points[points.length - 1]?.[key] ?? 0)}</b>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("single");
+  const [decisionEngine, setDecisionEngine] = useState<DecisionEngine>("jev");
 
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
   const [provider, setProvider] = useState<Provider>("anthropic");
@@ -344,17 +525,25 @@ export default function App() {
   const [batchIndex, setBatchIndex] = useState(0);
   const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
   const [batchSeed, setBatchSeed] = useState(() => createBenchmarkSeed());
+  const [workloadPreset, setWorkloadPreset] = useState<WorkloadPreset>("Balanced");
+  const [workloadMix, setWorkloadMix] = useState<WorkloadMix>({ easy: 8, medium: 8, hard: 8 });
 
   const directModel = getModel(modelId);
+  const engineMeta = ENGINE_META[decisionEngine];
   const previewPlan = useMemo(
-    () => makeRunPlan(prompt, directModel),
-    [prompt, directModel]
+    () => makeRunPlan(prompt, directModel, undefined, decisionEngine),
+    [prompt, directModel, decisionEngine]
   );
   const livePlan = currentPlan ?? previewPlan;
   const selectedCases = useMemo(
-    () => generateBenchmarkSuite(batchScope, batchSeed),
-    [batchScope, batchSeed]
+    () => generateBenchmarkSuite(batchScope, batchSeed, workloadMix),
+    [batchScope, batchSeed, workloadMix]
   );
+
+  const workloadTotal = workloadMix.easy + workloadMix.medium + workloadMix.hard;
+  const workloadValid =
+    batchScope !== "Full" ||
+    (workloadTotal > 0 && workloadTotal <= MAX_WORKLOAD_PROMPTS);
 
   useEffect(() => {
     if (phase !== "countdown") return;
@@ -404,7 +593,7 @@ export default function App() {
     }
 
     const timer = window.setTimeout(() => {
-      const plan = makeRunPlan(item.prompt, directModel, item.workload);
+      const plan = makeRunPlan(item.prompt, directModel, item.workload, decisionEngine);
       const routeCostDelta = percentageDelta(
         plan.direct.totalCost,
         plan.route.totalCost
@@ -443,7 +632,7 @@ export default function App() {
     }, 650);
 
     return () => window.clearTimeout(timer);
-  }, [batchPhase, batchIndex, selectedCases, directModel]);
+  }, [batchPhase, batchIndex, selectedCases, directModel, decisionEngine]);
 
   const isLocked = phase === "countdown" || phase === "running";
   const isRaceActive = phase === "countdown" || phase === "running";
@@ -504,9 +693,11 @@ export default function App() {
   const sameModel = livePlan.route.model.id === livePlan.direct.model.id;
 
   const verdictHeadline = sameModel
-    ? "Same model. JEV added only routing overhead."
+    ? decisionEngine === "laya"
+      ? "Same model. Laya adds decision latency, but no API fee."
+      : "Same model. JEV added only routing overhead."
     : routeSaving > 0.2
-      ? "JEV routing used less money on this task."
+      ? engineMeta.label + " routing used less money on this task."
       : routeSaving < -0.2
         ? "The direct path used less money on this task."
         : "Cost was effectively tied on this task.";
@@ -519,9 +710,14 @@ export default function App() {
   const batchCurrentPlan = useMemo(
     () =>
       batchCurrent
-        ? makeRunPlan(batchCurrent.prompt, directModel, batchCurrent.workload)
+        ? makeRunPlan(
+            batchCurrent.prompt,
+            directModel,
+            batchCurrent.workload,
+            decisionEngine
+          )
         : null,
-    [batchCurrent, directModel]
+    [batchCurrent, directModel, decisionEngine]
   );
 
   const routingFeed = useMemo(() => {
@@ -638,6 +834,58 @@ export default function App() {
     };
   }, [batchResults]);
 
+  const strategyComparison = useMemo(() => {
+    const haiku = getModel("claude-haiku-4-5");
+    const sonnet = getModel("claude-sonnet-5-5");
+    const opus = getModel("claude-opus-5-5");
+    const casesById = new Map(selectedCases.map((item) => [item.id, item]));
+    const totals = { jev: 0, haiku: 0, sonnet: 0, opus: 0 };
+    const points: StrategyPoint[] = [{ run: 0, ...totals }];
+
+    batchResults.forEach((result, index) => {
+      const item = casesById.get(result.caseId);
+      if (!item) return;
+
+      totals.jev += result.routeCost;
+      totals.haiku += makeRunPlan(item.prompt, haiku, item.workload).direct.totalCost;
+      totals.sonnet += makeRunPlan(item.prompt, sonnet, item.workload).direct.totalCost;
+      totals.opus += makeRunPlan(item.prompt, opus, item.workload).direct.totalCost;
+
+      points.push({ run: index + 1, ...totals });
+    });
+
+    return { totals: { ...totals }, points };
+  }, [batchResults, selectedCases]);
+
+  const liveDistribution = useMemo(() => {
+    const counts = { haiku: 0, sonnet: 0, opus: 0 };
+
+    batchResults.forEach((item) => {
+      if (item.routedModel.includes("Haiku")) counts.haiku += 1;
+      else if (item.routedModel.includes("Sonnet")) counts.sonnet += 1;
+      else if (item.routedModel.includes("Opus")) counts.opus += 1;
+    });
+
+    if (
+      batchPhase === "running" &&
+      batchCurrentPlan &&
+      batchCurrent &&
+      !batchResults.some((item) => item.caseId === batchCurrent.id)
+    ) {
+      if (batchCurrentPlan.route.model.name.includes("Haiku")) counts.haiku += 1;
+      else if (batchCurrentPlan.route.model.name.includes("Sonnet")) counts.sonnet += 1;
+      else if (batchCurrentPlan.route.model.name.includes("Opus")) counts.opus += 1;
+    }
+
+    return counts;
+  }, [batchResults, batchPhase, batchCurrent, batchCurrentPlan]);
+
+  const distributionTargets = {
+    easy: batchScope === "Full" ? workloadMix.easy : batchScope === "Easy" ? selectedCases.length : 8,
+    medium: batchScope === "Full" ? workloadMix.medium : batchScope === "Medium" ? selectedCases.length : 8,
+    hard: batchScope === "Full" ? workloadMix.hard : batchScope === "Hard" ? selectedCases.length : 8
+  };
+
   const levelSummaries = useMemo(() => {
     return (["Easy", "Medium", "Hard"] as const).map((level) => {
       const items = batchResults.filter((item) => item.expected === level);
@@ -662,7 +910,7 @@ export default function App() {
   const run = () => {
     if (!prompt.trim() || isLocked) return;
 
-    const plan = makeRunPlan(prompt, directModel);
+    const plan = makeRunPlan(prompt, directModel, undefined, decisionEngine);
     setCurrentPlan(plan);
     setElapsed(0);
     setCountdown(3);
@@ -678,12 +926,12 @@ export default function App() {
   };
 
   const startBatch = () => {
-    if (batchPhase === "running") return;
+    if (batchPhase === "running" || !workloadValid) return;
     setBatchSeed(createBenchmarkSeed());
     setBatchResults([]);
     setBatchIndex(0);
     setBatchPhase("running");
-    setRunCount((count) => count + suiteSize(batchScope));
+    setRunCount((count) => count + suiteSize(batchScope, workloadMix));
   };
 
   const resetBatch = () => {
@@ -697,6 +945,43 @@ export default function App() {
     setBatchPhase("idle");
     setBatchIndex(0);
     setBatchResults([]);
+  };
+
+  const applyWorkloadPreset = (preset: WorkloadPreset) => {
+    if (batchPhase === "running") return;
+    setWorkloadPreset(preset);
+    if (preset !== "Custom") {
+      setWorkloadMix({ ...WORKLOAD_PRESETS[preset] });
+    }
+    setBatchSeed(createBenchmarkSeed());
+    resetBatch();
+  };
+
+  const updateWorkloadMix = (key: keyof WorkloadMix, value: number) => {
+    if (batchPhase === "running") return;
+    setWorkloadPreset("Custom");
+    setWorkloadMix((current) => {
+      const otherTotal =
+        (key === "easy" ? 0 : current.easy) +
+        (key === "medium" ? 0 : current.medium) +
+        (key === "hard" ? 0 : current.hard);
+      const allowed = Math.max(0, MAX_WORKLOAD_PROMPTS - otherTotal);
+
+      return {
+        ...current,
+        [key]: Math.max(0, Math.min(allowed, value))
+      };
+    });
+    setBatchResults([]);
+    setBatchIndex(0);
+    setBatchPhase("idle");
+  };
+
+  const chooseDecisionEngine = (next: DecisionEngine) => {
+    if (isLocked || batchPhase === "running" || next === decisionEngine) return;
+    setDecisionEngine(next);
+    reset();
+    resetBatch();
   };
 
   const chooseProvider = (next: Provider) => {
@@ -743,16 +1028,16 @@ export default function App() {
       "Case ID",
       "Title",
       "Expected Level",
-      "JEV Predicted Level",
+      engineMeta.label + " Predicted Level",
       "Confidence %",
       "Routed Model",
       "Direct Model",
-      "JEV Decision Cost USD",
+      engineMeta.label + " Decision Cost USD",
       "Routed Model Cost USD",
-      "JEV Route Cost USD",
+      engineMeta.label + " Route Cost USD",
       "Direct Cost USD",
       "Cost Delta vs Direct %",
-      "JEV Decision Latency ms",
+      engineMeta.label + " Decision Latency ms",
       "Routed Model Runtime s",
       "Direct Model Runtime s",
       "Routing Match",
@@ -882,37 +1167,17 @@ export default function App() {
           <h1>
             {workspaceMode === "single"
               ? "Watch the routing decision happen."
-              : "Sample 8 or 24 prompts from a 1,500-prompt pool."}
+              : "Sample up to 100 prompts from a 1,500-prompt pool."}
           </h1>
         </div>
         {workspaceMode === "single" ? (
           <p>
-            JEV chooses the model on the left. You choose the direct baseline on
-            the right. Cost and latency race in real time.
+            {engineMeta.label} is the decision profile on the left. You choose the
+            direct baseline on the right. Cost and latency race in real time.
           </p>
         ) : null}
       </section>
 
-      <div className="workspace-switch" aria-label="Test type">
-        <button
-          type="button"
-          className={workspaceMode === "single" ? "active" : ""}
-          disabled={isLocked || batchPhase === "running"}
-          onClick={() => switchWorkspace("single")}
-        >
-          <strong>Single Run</strong>
-          <small>One prompt · visual race</small>
-        </button>
-        <button
-          type="button"
-          className={workspaceMode === "batch" ? "active" : ""}
-          disabled={isLocked || batchPhase === "running"}
-          onClick={() => switchWorkspace("batch")}
-        >
-          <strong>Auto Benchmark</strong>
-          <small>1,500-prompt pool · random 8 / 24</small>
-        </button>
-      </div>
 
       {workspaceMode === "single" ? (
         <section
@@ -940,10 +1205,10 @@ export default function App() {
           >
             <div className="lane-head">
               <div className="lane-title">
-                <IconMark label="J" />
+                <IconMark label={engineMeta.icon} />
                 <div>
                   <span className="lane-kicker">ROUTED PATH</span>
-                  <h2>JEV Route</h2>
+                  <h2>{engineMeta.routeTitle}</h2>
                 </div>
               </div>
               <span className="status-pill status-jev">
@@ -957,6 +1222,12 @@ export default function App() {
               </span>
             </div>
 
+            <DecisionEngineSwitch
+              engine={decisionEngine}
+              locked={isLocked || batchPhase === "running"}
+              onEngine={chooseDecisionEngine}
+            />
+
             <div className="route-stage">
               {phase === "idle" || phase === "countdown" ? (
                 <div className="decision-idle">
@@ -966,7 +1237,7 @@ export default function App() {
                     }
                   >
                     <span />
-                    <b>JEV</b>
+                    <b>{engineMeta.label}</b>
                   </div>
                   <p>
                     {phase === "countdown"
@@ -974,15 +1245,16 @@ export default function App() {
                       : "Decision hidden until the race starts."}
                   </p>
                   <small>
-                    JEV will classify the task and reveal the selected model
-                    only after launch.
+                    {decisionEngine === "laya"
+                      ? "Routing stays simulated; Laya's published latency and zero API fee are applied."
+                      : "JEV will classify the task and reveal the selected model only after launch."}
                   </small>
                 </div>
               ) : !decisionVisible ? (
                 <div className="decision-loading" aria-live="polite">
                   <div className="decision-orb working">
                     <span />
-                    <b>JEV</b>
+                    <b>{engineMeta.label}</b>
                   </div>
                   <strong>Reading the task...</strong>
                   <small>Scoring complexity, risk and context depth</small>
@@ -991,7 +1263,7 @@ export default function App() {
                 <div className="decision-result" aria-live="polite">
                   <div className="decision-banner">
                     <div>
-                      <span className="micro-label">JEV DECISION</span>
+                      <span className="micro-label">{engineMeta.decisionLabel}</span>
                       <strong>{livePlan.route.analysis.complexity}</strong>
                     </div>
                     <div className="confidence-ring" style={confidenceStyle}>
@@ -1038,32 +1310,35 @@ export default function App() {
 
             <div className="metrics-grid single-router-metrics">
               <Metric
-                label="JEV DECISION"
+                label={engineMeta.decisionLabel}
                 value={formatLatency(
                   phase === "idle" || phase === "countdown"
                     ? 0
                     : Math.min(elapsed, livePlan.route.decisionSeconds)
                 )}
-                sub="prompt received → route selected"
+                sub={
+                  decisionEngine === "laya"
+                    ? "published single-question · Tesla T4"
+                    : "prompt received → route selected"
+                }
                 accent="jev"
               />
             </div>
 
             <div className="cost-breakdown-grid">
               <div className="cost-breakdown-item jev-only">
-                <span>JEV DECISION COST</span>
+                <span>{engineMeta.decisionCostLabel}</span>
                 <strong>{formatMoney(jevDecisionCostLive)}</strong>
-                <small>router only</small>
+                <small>
+                  {decisionEngine === "laya"
+                    ? "$0 API fee · self-hosted"
+                    : "router only"}
+                </small>
               </div>
               <div className="cost-breakdown-item routed-models">
                 <span>ROUTED MODEL COST</span>
                 <strong>{formatMoney(routedModelCostLive)}</strong>
                 <small>{decisionVisible ? livePlan.route.model.compactName : "waiting for route"}</small>
-              </div>
-              <div className="cost-breakdown-item total-route">
-                <span>TOTAL ROUTE COST</span>
-                <strong>{formatMoney(totalRouteCostLive)}</strong>
-                <small>JEV + selected model</small>
               </div>
             </div>
 
@@ -1072,6 +1347,7 @@ export default function App() {
               elapsed={phase === "running" || phase === "done" ? elapsed : 0}
               plan={livePlan}
               done={decisionVisible}
+              engineLabel={engineMeta.label}
             />
 
             <div className="lane-foot">
@@ -1096,6 +1372,25 @@ export default function App() {
               aria-hidden="true"
             >
               <span />
+            </div>
+
+            <div className="workspace-switch workspace-switch-inline" aria-label="Test type">
+              <button
+                type="button"
+                className="active"
+                disabled={isLocked || batchPhase === "running"}
+                onClick={() => switchWorkspace("single")}
+              >
+                <strong>Single Run</strong>
+              </button>
+              <button
+                type="button"
+                className=""
+                disabled={isLocked || batchPhase === "running"}
+                onClick={() => switchWorkspace("batch")}
+              >
+                <strong>Auto Benchmark</strong>
+              </button>
             </div>
 
             <div className="prompt-head">
@@ -1175,7 +1470,7 @@ export default function App() {
 
             <div className="preflight">
               <div className="preflight-row">
-                <span>JEV decision</span>
+                <span>{engineMeta.label} decision</span>
                 <strong className="hidden-decision">
                   {phase === "idle" ? "Hidden until run" : "Locked"}
                 </strong>
@@ -1223,9 +1518,9 @@ export default function App() {
             </button>
 
             <p className="method-note">
-              Simulation mode uses identical token estimates and configured
-              list prices. Timing remains illustrative until Live mode is
-              connected.
+              {decisionEngine === "laya"
+                ? "Laya routing output is simulated. Decision latency uses the project's published 39.5 ms single-question Tesla T4 benchmark; API fee is modeled as $0 self-hosted, excluding hardware and electricity."
+                : "Simulation mode uses identical token estimates and configured list prices. JEV timing remains illustrative until Live mode is connected."}
             </p>
           </article>
 
@@ -1311,11 +1606,11 @@ export default function App() {
 
             <div className="result-comparison">
               <div className="result-path route">
-                <span>JEV ROUTE</span>
+                <span>{engineMeta.label.toUpperCase()} ROUTE</span>
                 <strong>{livePlan.route.model.compactName}</strong>
                 <b>{formatMoney(livePlan.route.totalCost)}</b>
                 <small>
-                  JEV decision {formatLatency(livePlan.route.decisionSeconds)}
+                  {engineMeta.label} decision {formatLatency(livePlan.route.decisionSeconds)}
                 </small>
               </div>
 
@@ -1336,12 +1631,14 @@ export default function App() {
                     "%"}
                 </strong>
                 <small>
-                  {routeSaving >= 0 ? "with JEV routing" : "routing overhead"}
+                  {routeSaving >= 0
+                    ? "with " + engineMeta.label + " routing"
+                    : "routing overhead"}
                 </small>
               </div>
 
               <div className="saving-card">
-                <span>JEV DECISION</span>
+                <span>{engineMeta.decisionLabel}</span>
                 <strong>{formatLatency(livePlan.route.decisionSeconds)}</strong>
                 <small>router latency only · not model runtime</small>
               </div>
@@ -1350,11 +1647,11 @@ export default function App() {
             <div className="verdict-grid">
               <div className="verdict-card">
                 <span>COST</span>
-                <strong>{deltaWinner(routeSaving)}</strong>
+                <strong>{deltaWinner(routeSaving, engineMeta.routeTitle)}</strong>
                 <small>{Math.abs(routeSaving).toFixed(1)}% delta</small>
               </div>
               <div className="verdict-card">
-                <span>JEV DECISION</span>
+                <span>{engineMeta.decisionLabel}</span>
                 <strong>{formatLatency(livePlan.route.decisionSeconds)}</strong>
                 <small>router latency only · model runtime excluded</small>
               </div>
@@ -1393,10 +1690,10 @@ export default function App() {
           >
             <div className="lane-head">
               <div className="lane-title">
-                <IconMark label="J" />
+                <IconMark label={engineMeta.icon} />
                 <div>
                   <span className="lane-kicker">AUTOMATED ROUTE</span>
-                  <h2>JEV Aggregate</h2>
+                  <h2>{engineMeta.aggregateTitle}</h2>
                 </div>
               </div>
               <span className="status-pill status-jev">
@@ -1407,6 +1704,12 @@ export default function App() {
                     : "DONE"}
               </span>
             </div>
+
+            <DecisionEngineSwitch
+              engine={decisionEngine}
+              locked={isLocked || batchPhase === "running"}
+              onEngine={chooseDecisionEngine}
+            />
 
             <div className="batch-hero-stat">
               <span>ROUTING MATCH</span>
@@ -1430,21 +1733,30 @@ export default function App() {
                 <strong>{batchResults.length} decisions</strong>
               </div>
               {[
-                ["Haiku", "Easy", batchTotals.distribution.haiku, "easy"],
-                ["Sonnet", "Medium", batchTotals.distribution.sonnet, "medium"],
-                ["Opus", "Hard", batchTotals.distribution.opus, "hard"]
+                ["Haiku", "Easy", liveDistribution.haiku, "easy"],
+                ["Sonnet", "Medium", liveDistribution.sonnet, "medium"],
+                ["Opus", "Hard", liveDistribution.opus, "hard"]
               ].map(([label, difficulty, count, tone]) => {
                 const value = Number(count);
-                const pct = batchResults.length
-                  ? (value / batchResults.length) * 100
-                  : 0;
-                const style = {
-                  "--bar-width": pct + "%"
-                } as CSSProperties;
+                const target =
+                  tone === "easy"
+                    ? distributionTargets.easy
+                    : tone === "medium"
+                      ? distributionTargets.medium
+                      : distributionTargets.hard;
+                const pct = Math.min((value / Math.max(1, target)) * 100, 100);
+                const isLive =
+                  batchPhase === "running" &&
+                  ((tone === "easy" && batchCurrentPlan?.route.model.name.includes("Haiku")) ||
+                    (tone === "medium" && batchCurrentPlan?.route.model.name.includes("Sonnet")) ||
+                    (tone === "hard" && batchCurrentPlan?.route.model.name.includes("Opus")));
 
                 return (
                   <div
-                    className={"distribution-row distribution-" + tone}
+                    className={
+                      "distribution-row distribution-" + tone +
+                      (isLive ? " is-live" : "")
+                    }
                     key={String(label)}
                   >
                     <div>
@@ -1454,10 +1766,10 @@ export default function App() {
                       </span>
                       <strong>{value}</strong>
                     </div>
-                    <div className="probability-track">
-                      <span
-                        className={"probability-fill distribution-fill " + tone}
-                        style={style}
+                    <div className="probability-track distribution-track">
+                      <div
+                        className={"probability-fill distribution-fill " + tone + (isLive ? " live" : "")}
+                        style={{ width: pct + "%", minWidth: value > 0 ? "10px" : "0px" }}
                       />
                     </div>
                   </div>
@@ -1465,11 +1777,61 @@ export default function App() {
               })}
             </div>
 
+            <div className="metrics-grid decision-metrics-grid">
+              <Metric
+                label={batchPhase === "done" ? "LAST DECISION" : "CURRENT DECISION"}
+                value={formatLatency(
+                  batchPhase === "running" && batchCurrentPlan
+                    ? batchCurrentPlan.route.decisionSeconds
+                    : batchResults.length
+                      ? batchResults[batchResults.length - 1].decisionTime
+                      : 0
+                )}
+                sub={
+                  decisionEngine === "laya"
+                    ? "published single-question · Tesla T4"
+                    : "router latency for one prompt"
+                }
+                accent="jev"
+              />
+              <Metric
+                label="TOTAL DECISION TIME"
+                value={
+                  batchTotals.decisionTimeTotal >= 1
+                    ? batchTotals.decisionTimeTotal.toFixed(3) + " s"
+                    : Math.round(batchTotals.decisionTimeTotal * 1000) + " ms"
+                }
+                sub={
+                  batchResults.length
+                    ? "avg " + formatLatency(batchTotals.averageDecisionTime)
+                    : "sum of " + engineMeta.label + " decisions"
+                }
+                accent="jev"
+              />
+            </div>
+
+            <div className="cost-breakdown-grid batch-cost-breakdown">
+              <div className="cost-breakdown-item jev-only">
+                <span>{engineMeta.decisionCostLabel}</span>
+                <strong>{formatMoney(batchTotals.jevDecisionCostTotal)}</strong>
+                <small>
+                  {decisionEngine === "laya"
+                    ? "$0 API fee · self-hosted"
+                    : "router only"}
+                </small>
+              </div>
+              <div className="cost-breakdown-item routed-models">
+                <span>ROUTED MODELS COST</span>
+                <strong>{formatMoney(batchTotals.routedModelCostTotal)}</strong>
+                <small>Haiku + Sonnet + Opus</small>
+              </div>
+            </div>
+
             <div className="routing-feed-card">
               <div className="routing-feed-head">
                 <div>
                   <span>LIVE ROUTING FEED</span>
-                  <strong>Prompt → JEV → Model</strong>
+                  <strong>{"Prompt → " + engineMeta.label + " → Model"}</strong>
                 </div>
                 <small>
                   {batchPhase === "running"
@@ -1514,36 +1876,9 @@ export default function App() {
                   ))
                 ) : (
                   <div className="routing-feed-empty">
-                    Each prompt will appear here with the model JEV routes it to.
+                    {"Each prompt will appear here with the model " + engineMeta.label + " routes it to."}
                   </div>
                 )}
-              </div>
-            </div>
-
-            <div className="metrics-grid single-router-metrics">
-              <Metric
-                label="JEV DECISION"
-                value={formatLatency(batchTotals.averageDecisionTime)}
-                sub={"avg · " + formatLatency(batchTotals.decisionTimeTotal) + " total"}
-                accent="jev"
-              />
-            </div>
-
-            <div className="cost-breakdown-grid batch-cost-breakdown">
-              <div className="cost-breakdown-item jev-only">
-                <span>JEV DECISION COST</span>
-                <strong>{formatMoney(batchTotals.jevDecisionCostTotal)}</strong>
-                <small>router only</small>
-              </div>
-              <div className="cost-breakdown-item routed-models">
-                <span>ROUTED MODELS COST</span>
-                <strong>{formatMoney(batchTotals.routedModelCostTotal)}</strong>
-                <small>Haiku + Sonnet + Opus</small>
-              </div>
-              <div className="cost-breakdown-item total-route">
-                <span>TOTAL ROUTE COST</span>
-                <strong>{formatMoney(batchTotals.routeCostTotal)}</strong>
-                <small>JEV + routed models</small>
               </div>
             </div>
 
@@ -1557,7 +1892,7 @@ export default function App() {
                 </strong>
               </div>
               <div>
-                <span>JEV cases completed</span>
+                <span>{engineMeta.label} cases completed</span>
                 <strong>
                   {batchResults.length}/{selectedCases.length}
                 </strong>
@@ -1570,6 +1905,24 @@ export default function App() {
           </article>
 
           <article className="prompt-card batch-control-card">
+            <div className="workspace-switch workspace-switch-inline" aria-label="Test type">
+              <button
+                type="button"
+                className=""
+                disabled={isLocked || batchPhase === "running"}
+                onClick={() => switchWorkspace("single")}
+              >
+                <strong>Single Run</strong>
+              </button>
+              <button
+                type="button"
+                className="active"
+                disabled={isLocked || batchPhase === "running"}
+                onClick={() => switchWorkspace("batch")}
+              >
+                <strong>Auto Benchmark</strong>
+              </button>
+            </div>
             <div className="prompt-head">
               <div>
                 <span className="lane-kicker">AUTO BENCHMARK</span>
@@ -1599,7 +1952,7 @@ export default function App() {
               {(["Easy", "Medium", "Hard", "Full"] as BenchmarkScope[]).map(
                 (scope) => {
                   const count =
-                    suiteSize(scope);
+                    suiteSize(scope, workloadMix);
                   return (
                     <button
                       type="button"
@@ -1619,6 +1972,62 @@ export default function App() {
                 }
               )}
             </div>
+
+            {batchScope === "Full" ? (
+              <div className="workload-mix-card">
+                <div className="workload-mix-head">
+                  <div>
+                    <span>WORKLOAD MIX</span>
+                    <strong>Choose any mix up to 100 prompts.</strong>
+                  </div>
+                  <b className={workloadValid ? "mix-valid" : "mix-invalid"}>
+                    {workloadTotal}/100
+                  </b>
+                </div>
+
+                <div className="workload-preset-row">
+                  {(["Balanced", "Light", "Developer", "Custom"] as WorkloadPreset[]).map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      className={workloadPreset === preset ? "active" : ""}
+                      disabled={batchPhase === "running"}
+                      onClick={() => applyWorkloadPreset(preset)}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mix-slider-grid">
+                  {([
+                    ["easy", "Easy", "mix-easy"],
+                    ["medium", "Medium", "mix-medium"],
+                    ["hard", "Hard", "mix-hard"]
+                  ] as const).map(([key, label, className]) => (
+                    <label className={"mix-slider " + className} key={key}>
+                      <div>
+                        <span>{label}</span>
+                        <strong>{workloadMix[key]}</strong>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max={MAX_WORKLOAD_PROMPTS}
+                        step="1"
+                        value={workloadMix[key]}
+                        disabled={batchPhase === "running"}
+                        onChange={(event) => updateWorkloadMix(key, Number(event.target.value))}
+                      />
+                    </label>
+                  ))}
+                </div>
+
+                {!workloadValid ? (
+                  <div className="mix-warning">Choose at least one prompt. Maximum: 100.</div>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="batch-seed-row">
               <span>Random suite seed</span>
@@ -1640,6 +2049,8 @@ export default function App() {
                 <span style={{ width: batchProgress + "%" }} />
               </div>
             </div>
+
+            <CostRaceChart points={strategyComparison.points} totalRuns={selectedCases.length} engineLabel={engineMeta.label} />
 
             <div className="current-case">
               <span className="micro-label">
@@ -1701,7 +2112,7 @@ export default function App() {
                 (batchPhase === "running" ? " running" : "")
               }
               type="button"
-              disabled={batchPhase === "running"}
+              disabled={batchPhase === "running" || !workloadValid}
               onClick={startBatch}
             >
               <span className="run-icon">
@@ -1716,7 +2127,9 @@ export default function App() {
                       : "Run automated benchmark"}
                 </strong>
                 <small>
-                  {selectedCases.length} prompts will run one after another
+                  {workloadValid
+                    ? selectedCases.length + " prompts will run one after another"
+                    : "Choose a workload between 1 and 100 prompts"}
                 </small>
               </span>
             </button>
@@ -1757,7 +2170,7 @@ export default function App() {
               <span>BASELINE CONTEXT</span>
               <strong>
                 {directModel.tier === "fast"
-                  ? "Fast/cheap baseline: routing may cost more when JEV escalates."
+                  ? "Fast/cheap baseline: routing may cost more when " + engineMeta.label + " escalates."
                   : directModel.tier === "strong"
                     ? "Strong baseline: routing can save cost by avoiding this model on simpler tasks."
                     : "Balanced baseline: routing trades up or down by task difficulty."}
@@ -1808,9 +2221,9 @@ export default function App() {
                 <span className="lane-kicker">SUITE VERDICT</span>
                 <h2>
                   {batchTotals.costDelta > 0.2
-                    ? "JEV routing was cheaper than the direct baseline."
+                    ? engineMeta.label + " routing was cheaper than the direct baseline."
                     : batchTotals.costDelta < -0.2
-                      ? "JEV routing was more expensive than the direct baseline."
+                      ? engineMeta.label + " routing was more expensive than the direct baseline."
                       : "Total simulated cost was effectively tied."}
                 </h2>
               </div>
@@ -1840,7 +2253,7 @@ export default function App() {
               <div className="summary-card">
                 <span>COST VS DIRECT</span>
                 <strong className={batchTotals.costDelta >= 0 ? "delta-good" : "delta-bad"}>
-                  {deltaText(batchTotals.costDelta)}
+                  {deltaText(batchTotals.costDelta, engineMeta.label)}
                 </strong>
                 <small>
                   {formatMoney(batchTotals.routeCostTotal)} vs{" "}
@@ -1848,7 +2261,7 @@ export default function App() {
                 </small>
               </div>
               <div className="summary-card">
-                <span>AVG JEV DECISION</span>
+                <span>{"AVG " + engineMeta.label.toUpperCase() + " DECISION"}</span>
                 <strong>{formatLatency(batchTotals.averageDecisionTime)}</strong>
                 <small>
                   router only · selected model runtime excluded
@@ -1876,6 +2289,47 @@ export default function App() {
               </div>
             </div>
 
+            <div className="strategy-comparison-panel">
+              <div className="strategy-comparison-head">
+                <div>
+                  <span>FOUR-STRATEGY COST COMPARISON</span>
+                  <strong>What if every prompt always used one fixed model?</strong>
+                </div>
+                <small>Same workloads · same token counts</small>
+              </div>
+
+              <div className="strategy-card-grid">
+                <div className="strategy-card strategy-jev">
+                  <span>{engineMeta.label.toUpperCase()} ROUTE</span>
+                  <strong>{formatMoney(strategyComparison.totals.jev)}</strong>
+                  <small>{decisionEngine === "laya" ? "selected models · $0 decision API fee" : "router + selected models"}</small>
+                </div>
+                <div className="strategy-card strategy-haiku">
+                  <span>ALWAYS HAIKU</span>
+                  <strong>{formatMoney(strategyComparison.totals.haiku)}</strong>
+                  <small>
+                    {deltaText(percentageDelta(strategyComparison.totals.haiku, strategyComparison.totals.jev), engineMeta.label)}
+                  </small>
+                </div>
+                <div className="strategy-card strategy-sonnet">
+                  <span>ALWAYS SONNET</span>
+                  <strong>{formatMoney(strategyComparison.totals.sonnet)}</strong>
+                  <small>
+                    {deltaText(percentageDelta(strategyComparison.totals.sonnet, strategyComparison.totals.jev), engineMeta.label)}
+                  </small>
+                </div>
+                <div className="strategy-card strategy-opus">
+                  <span>ALWAYS OPUS</span>
+                  <strong>{formatMoney(strategyComparison.totals.opus)}</strong>
+                  <small>
+                    {deltaText(percentageDelta(strategyComparison.totals.opus, strategyComparison.totals.jev), engineMeta.label)}
+                  </small>
+                </div>
+              </div>
+
+              <CostRaceChart points={strategyComparison.points} totalRuns={selectedCases.length} />
+            </div>
+
             <div className="level-breakdown">
               {levelSummaries.map((summary) => (
                 <div className="level-card" key={summary.level}>
@@ -1886,11 +2340,11 @@ export default function App() {
                   <div>
                     <small>Cost vs direct</small>
                     <b className={summary.costDelta >= 0 ? "delta-good" : "delta-bad"}>
-                      {summary.count ? deltaText(summary.costDelta) : "—"}
+                      {summary.count ? deltaText(summary.costDelta, engineMeta.label) : "—"}
                     </b>
                   </div>
                   <div>
-                    <small>Avg JEV decision</small>
+                    <small>{"Avg " + engineMeta.label + " decision"}</small>
                     <b>
                       {summary.count
                         ? formatLatency(summary.averageDecisionTime)
@@ -1907,11 +2361,11 @@ export default function App() {
                   <tr>
                     <th>Case</th>
                     <th>Expected</th>
-                    <th>JEV</th>
+                    <th>{engineMeta.label}</th>
                     <th>Confidence</th>
                     <th>Route</th>
                     <th>Cost Δ</th>
-                    <th>JEV latency</th>
+                    <th>{engineMeta.label} latency</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1936,7 +2390,7 @@ export default function App() {
                       <td>{item.routedModel.replace("Claude ", "")}</td>
                       <td>
                         <span className={item.costDelta >= 0 ? "delta-good" : "delta-bad"}>
-                          {deltaText(item.costDelta)}
+                          {deltaText(item.costDelta, engineMeta.label)}
                         </span>
                       </td>
                       <td>{formatLatency(item.decisionTime)}</td>
