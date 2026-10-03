@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pouramin.github.io/JEVArena/"><img alt="Try Online" src="https://img.shields.io/badge/Try%20Online-GitHub%20Pages-2ea44f?style=for-the-badge"></a>
+  <a href="https://pouramin.dev/JEVArena/"><img alt="Try Online" src="https://img.shields.io/badge/Try%20Online-GitHub%20Pages-2ea44f?style=for-the-badge"></a>
   <a href="https://github.com/pouramin/JEVArena/releases/download/latest/JEVArena-Windows-Portable.zip"><img alt="Download for Windows" src="https://img.shields.io/badge/Download-Windows%20Portable-0078D4?style=for-the-badge&logo=windows"></a>
 </p>
 
@@ -28,7 +28,7 @@
 
 برای تست عادی هیچ چیزی لازم نیست نصب کنید. نسخه‌ی وب را باز کنید:
 
-**[اجرای آنلاین JEVArena](https://pouramin.github.io/JEVArena/)**
+**[اجرای آنلاین JEVArena](https://pouramin.dev/JEVArena/)**
 
 نسخه‌ی وب به حساب کاربری، کلید API یا نصب Node.js نیاز ندارد.
 
@@ -100,7 +100,7 @@ The current build focuses on a simulated JEV routing path beside a direct-model 
 
 Nothing needs to be installed for normal use:
 
-**[Try JEVArena online](https://pouramin.github.io/JEVArena/)**
+**[Try JEVArena online](https://pouramin.dev/JEVArena/)**
 
 The web build requires no account, no API key, and no local Node.js installation.
 
