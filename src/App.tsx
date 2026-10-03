@@ -15,6 +15,7 @@ import {
   GENERATED_POOL_NOTE,
   createBenchmarkSeed,
   generateBenchmarkSuite,
+  suiteSize,
   type BenchmarkScope,
   type WorkloadMix
 } from "./data/benchmarks";
