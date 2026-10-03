@@ -2327,7 +2327,7 @@ export default function App() {
                 </div>
               </div>
 
-              <CostRaceChart points={strategyComparison.points} totalRuns={selectedCases.length} />
+              <CostRaceChart points={strategyComparison.points} totalRuns={selectedCases.length} engineLabel={engineMeta.label} />
             </div>
 
             <div className="level-breakdown">
