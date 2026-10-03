@@ -2,6 +2,9 @@ import type { WorkloadProfile } from "../lib/simulator";
 
 export type BenchmarkLevel = "Easy" | "Medium" | "Hard";
 export type BenchmarkScope = "Easy" | "Medium" | "Hard" | "Full";
+export type WorkloadMix = { easy: number; medium: number; hard: number };
+
+export const DEFAULT_WORKLOAD_MIX: WorkloadMix = { easy: 8, medium: 8, hard: 8 };
 
 export type BenchmarkCase = {
   id: string;
@@ -296,7 +299,8 @@ export function createBenchmarkSeed() {
 
 export function generateBenchmarkSuite(
   scope: BenchmarkScope,
-  seed = createBenchmarkSeed()
+  seed = createBenchmarkSeed(),
+  mix: WorkloadMix = DEFAULT_WORKLOAD_MIX
 ) {
   const random = mulberry32(seed);
 
@@ -304,18 +308,20 @@ export function generateBenchmarkSuite(
   if (scope === "Medium") return sampleLevel(MEDIUM_POOL, 8, random);
   if (scope === "Hard") return sampleLevel(HARD_POOL, 8, random);
 
-  const balanced = [
-    ...sampleLevel(EASY_POOL, 8, random),
-    ...sampleLevel(MEDIUM_POOL, 8, random),
-    ...sampleLevel(HARD_POOL, 8, random)
+  const total = mix.easy + mix.medium + mix.hard;
+  const safeMix = total > 0 && total <= 100 ? mix : DEFAULT_WORKLOAD_MIX;
+  const mixed = [
+    ...sampleLevel(EASY_POOL, safeMix.easy, random),
+    ...sampleLevel(MEDIUM_POOL, safeMix.medium, random),
+    ...sampleLevel(HARD_POOL, safeMix.hard, random)
   ];
 
-  return shuffle(balanced, random);
+  return shuffle(mixed, random);
 }
 
-export function suiteSize(scope: BenchmarkScope) {
-  return scope === "Full" ? 24 : 8;
+export function suiteSize(scope: BenchmarkScope, mix: WorkloadMix = DEFAULT_WORKLOAD_MIX) {
+  return scope === "Full" ? mix.easy + mix.medium + mix.hard : 8;
 }
 
 export const GENERATED_POOL_NOTE =
-  "1,500 unique prompts are pre-generated in the local pool: 500 Easy, 500 Medium, and 500 Hard. Each suite samples without replacement, and Full mode shuffles all 24 cases before execution.";
+  "1,500 unique prompts are pre-generated in the local pool: 500 Easy, 500 Medium, and 500 Hard. Full mode can sample any custom mix up to 100 prompts, without replacement, then shuffles the selected cases before execution.";
