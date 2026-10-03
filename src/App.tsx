@@ -15,7 +15,6 @@ import {
   GENERATED_POOL_NOTE,
   createBenchmarkSeed,
   generateBenchmarkSuite,
-  suiteSize,
   type BenchmarkScope,
   type WorkloadMix
 } from "./data/benchmarks";
@@ -516,8 +515,6 @@ export default function App() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [countdown, setCountdown] = useState(3);
   const [elapsed, setElapsed] = useState(0);
-  const [runCount, setRunCount] = useState(0);
-  const [presentation, setPresentation] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<RunPlan | null>(null);
 
   const [batchScope, setBatchScope] = useState<BenchmarkScope>("Full");
@@ -914,7 +911,6 @@ export default function App() {
     setCurrentPlan(plan);
     setElapsed(0);
     setCountdown(3);
-    setRunCount((count) => count + 1);
     setPhase("countdown");
   };
 
@@ -931,7 +927,6 @@ export default function App() {
     setBatchResults([]);
     setBatchIndex(0);
     setBatchPhase("running");
-    setRunCount((count) => count + suiteSize(batchScope, workloadMix));
   };
 
   const resetBatch = () => {
@@ -1004,21 +999,6 @@ export default function App() {
   const switchWorkspace = (next: WorkspaceMode) => {
     if (isLocked || batchPhase === "running") return;
     setWorkspaceMode(next);
-  };
-
-  const togglePresentation = async () => {
-    const next = !presentation;
-    setPresentation(next);
-
-    try {
-      if (next && !document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
-      } else if (!next && document.fullscreenElement) {
-        await document.exitFullscreen();
-      }
-    } catch {
-      // CSS presentation mode still works if browser fullscreen is blocked.
-    }
   };
 
   const exportBatchCsv = () => {
@@ -1119,7 +1099,7 @@ export default function App() {
   };
 
   return (
-    <main className={"app-shell" + (presentation ? " presentation" : "")}>
+    <main className="app-shell">
       <header className="topbar">
         <div className="brand">
           <div className="brand-mark">J</div>
@@ -1145,16 +1125,37 @@ export default function App() {
           </div>
         </div>
 
-        <div className="topbar-actions">
-          <span className="run-counter">{runCount} runs</span>
-          <button
-            className="ghost-button"
-            type="button"
-            onClick={togglePresentation}
+        <nav className="topbar-actions" aria-label="External links">
+          <a
+            className="external-link-button website-link"
+            href="https://pouramin.dev/"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Amin Pour website"
+            title="pouramin.dev"
           >
-            {presentation ? "Exit present" : "Present"}
-          </button>
-        </div>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M3 12h18M12 3a14.5 14.5 0 0 1 0 18M12 3a14.5 14.5 0 0 0 0 18" />
+            </svg>
+          </a>
+          <a
+            className="external-link-button youtube-link"
+            href="https://www.youtube.com/@TunnelLab"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="TunnelLab on YouTube"
+            title="TunnelLab on YouTube"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                className="youtube-shell"
+                d="M21.4 6.4a2.9 2.9 0 0 0-2-2C17.6 4 12 4 12 4s-5.6 0-7.4.4a2.9 2.9 0 0 0-2 2C2.2 8.2 2.2 12 2.2 12s0 3.8.4 5.6a2.9 2.9 0 0 0 2 2C6.4 20 12 20 12 20s5.6 0 7.4-.4a2.9 2.9 0 0 0 2-2c.4-1.8.4-5.6.4-5.6s0-3.8-.4-5.6Z"
+              />
+              <path className="youtube-play" d="m10 15.2 5-3.2-5-3.2v6.4Z" />
+            </svg>
+          </a>
+        </nav>
       </header>
 
       <section className="hero-copy">
