@@ -219,6 +219,22 @@ button:disabled {
   color: #ff5d5d;
 }
 
+.telegram-link svg {
+  stroke: none;
+}
+
+.telegram-link .telegram-shell {
+  fill: currentColor;
+}
+
+.telegram-link:hover {
+  color: #6db8ff;
+}
+
+.coffee-link:hover {
+  color: #ffdd57;
+}
+
 .ghost-button,
 .text-button {
   border: 1px solid var(--border);
