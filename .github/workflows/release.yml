@@ -1,0 +1,104 @@
+name: Build portable Windows release
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: portable-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  portable:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build portable static app
+        run: npm run build -- --base=./
+
+      - name: Assemble portable package
+        shell: bash
+        run: |
+          rm -rf release
+          mkdir -p release/JEVArena
+          cp -R dist/. release/JEVArena/
+          cp portable/START_JEVARENA.bat release/JEVArena/
+          cp portable/serve.ps1 release/JEVArena/
+          cp portable/README.txt release/JEVArena/
+          cd release
+          zip -r ../JEVArena-Windows-Portable.zip JEVArena
+
+      - name: Resolve release channel
+        id: meta
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "title=JEVArena ${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "rolling=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+            echo "title=JEVArena Latest" >> "$GITHUB_OUTPUT"
+            echo "rolling=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Move rolling latest tag
+        if: steps.meta.outputs.rolling == 'true'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f latest "$GITHUB_SHA"
+          git push origin refs/tags/latest --force
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          RELEASE_TITLE: ${{ steps.meta.outputs.title }}
+        shell: bash
+        run: |
+          NOTES=$(cat <<'TXT'
+          Portable Windows build of JEVArena.
+
+          - No Node.js required
+          - No npm or Python required
+          - No API key required
+          - Extract the ZIP and run START_JEVARENA.bat
+
+          JEVArena is simulation-first. Published third-party reference values are labeled in the UI and documentation.
+          TXT
+          )
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" JEVArena-Windows-Portable.zip --clobber
+            gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE" --notes "$NOTES"
+          else
+            gh release create "$RELEASE_TAG" JEVArena-Windows-Portable.zip \
+              --title "$RELEASE_TITLE" \
+              --notes "$NOTES" \
+              --target "$GITHUB_SHA"
+          fi
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: JEVArena-Windows-Portable
+          path: JEVArena-Windows-Portable.zip
+          retention-days: 30
