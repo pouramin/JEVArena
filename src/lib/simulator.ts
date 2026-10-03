@@ -5,6 +5,7 @@ import {
 } from "../data/models";
 
 export type Complexity = "Easy" | "Medium" | "Hard";
+export type DecisionEngine = "jev" | "laya";
 
 export type WorkloadProfile = {
   inputTokens: number;
@@ -207,7 +208,8 @@ function modelCost(model: Model, inputTokens: number, outputTokens: number) {
 export function makeRunPlan(
   prompt: string,
   directModel: Model,
-  workload?: WorkloadProfile
+  workload?: WorkloadProfile,
+  decisionEngine: DecisionEngine = "jev"
 ): RunPlan {
   const analysis = analyzePrompt(prompt);
   const routeModel = anthropicModelForTier(analysis.tier);
@@ -226,8 +228,29 @@ export function makeRunPlan(
   );
 
   const jevInputTokens = Math.max(120, Math.ceil(prompt.length / 4) + 180);
-  const jevCost = (jevInputTokens / 1_000_000) * JEV_INPUT_PRICE;
-  const decisionSeconds = 0.17 + Math.min(prompt.length, 900) / 9000;
+  const jevCost =
+    decisionEngine === "laya"
+      ? 0
+      : (jevInputTokens / 1_000_000) * JEV_INPUT_PRICE;
+
+  let latencyHash = 2166136261;
+  for (let index = 0; index < prompt.length; index += 1) {
+    latencyHash ^= prompt.charCodeAt(index);
+    latencyHash = Math.imul(latencyHash, 16777619);
+  }
+  const latencyUnit = (latencyHash >>> 0) / 4294967295;
+  const complexityBase =
+    analysis.complexity === "Easy"
+      ? 0.105
+      : analysis.complexity === "Medium"
+        ? 0.135
+        : 0.165;
+  const lengthPenalty = Math.min(prompt.length, 900) / 900 * 0.045;
+  const jitter = latencyUnit * 0.09;
+  const decisionSeconds =
+    decisionEngine === "laya"
+      ? 0.0395
+      : complexityBase + lengthPenalty + jitter;
   const baseSeconds = tokenUsage.baseSeconds;
 
   return {
