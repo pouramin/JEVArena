@@ -1156,6 +1156,35 @@ export default function App() {
               <path className="youtube-play" d="m10 15.2 5-3.2-5-3.2v6.4Z" />
             </svg>
           </a>
+          <a
+            className="external-link-button telegram-link"
+            href="https://t.me/TunneLab"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="TunnelLab on Telegram"
+            title="TunnelLab on Telegram"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                className="telegram-shell"
+                d="M21.2 4.2 18.1 19c-.2 1-1 1.2-1.8.8l-4.8-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.4-4.9 8.9-8c.4-.3-.1-.5-.6-.2L5.9 12.8 1.2 11.3c-1-.3-1-1 .2-1.5L19.8 3c.9-.3 1.6.2 1.4 1.2Z"
+              />
+            </svg>
+          </a>
+          <a
+            className="external-link-button coffee-link"
+            href="https://buymeacoffee.com/pouramin"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Buy me a coffee"
+            title="Buy me a coffee"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 8h11v5.4A5.6 5.6 0 0 1 10.4 19H9.6A4.6 4.6 0 0 1 5 14.4V8Z" />
+              <path d="M16 10h1.4a2.6 2.6 0 1 1 0 5.2H16" />
+              <path d="M7 5.2c.8-.8.8-1.6 0-2.4M11 5.2c.8-.8.8-1.6 0-2.4M15 5.2c.8-.8.8-1.6 0-2.4" />
+            </svg>
+          </a>
         </nav>
       </header>
 
