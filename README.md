@@ -10,8 +10,13 @@
   <a href="https://github.com/pouramin/JEVArena/releases/download/latest/JEVArena-Windows-Portable.zip"><img alt="Download for Windows" src="https://img.shields.io/badge/Download-Windows%20Portable-0078D4?style=for-the-badge&logo=windows"></a>
 </p>
 
+<p align="center">
+  <a href="#english">English</a> · <a href="#persian">فارسی</a>
+</p>
+
 ---
 
+<a id="persian"></a>
 ## فارسی
 
 <div dir="rtl" align="right">
@@ -84,6 +89,7 @@ npm run build
 
 ---
 
+<a id="english"></a>
 ## English
 
 <div dir="ltr" align="left">
