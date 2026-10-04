@@ -1571,7 +1571,7 @@ export default function App() {
             <p className="method-note">
               {decisionEngine === "laya"
                 ? "Laya routing output is simulated. Decision latency uses the project's published 39.5 ms single-question Tesla T4 benchmark; API fee is modeled as $0 self-hosted, excluding hardware and electricity."
-                : "Simulation mode uses identical token estimates and configured list prices. JEV timing remains illustrative until Live mode is connected."}
+                : "Simulation mode uses configured list prices and capability-adjusted workload estimates. Under-tiered fixed models may consume extra simulated tokens and runtime. JEV timing remains illustrative until Live mode is connected."}
             </p>
           </article>
 
