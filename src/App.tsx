@@ -131,6 +131,26 @@ function formatTime(seconds: number) {
   return seconds.toFixed(3) + " s";
 }
 
+function formatRuntimeSeconds(seconds: number) {
+  return seconds.toFixed(seconds >= 100 ? 1 : 2) + " s";
+}
+
+function formatRuntimeContext(seconds: number) {
+  if (seconds < 60) {
+    return "capability-adjusted cumulative simulated runtime";
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds - minutes * 60;
+  return (
+    "≈ " +
+    minutes +
+    "m " +
+    remainder.toFixed(1) +
+    "s · capability-adjusted cumulative runtime"
+  );
+}
+
 function formatMoney(value: number) {
   if (value < 0.001) return "$" + value.toFixed(6);
   if (value < 0.1) return "$" + value.toFixed(4);
@@ -1743,7 +1763,7 @@ export default function App() {
             />
 
             <div className="batch-hero-stat">
-              <span>ROUTING MATCH</span>
+              <span>EXPECTED-TIER MATCH</span>
               <strong>
                 {batchResults.length
                   ? (
@@ -1753,8 +1773,7 @@ export default function App() {
                   : "—"}
               </strong>
               <small>
-                {batchTotals.routingMatches}/{batchResults.length || 0} matched
-                the expected difficulty label
+                {batchTotals.routingMatches}/{batchResults.length || 0} predicted difficulty labels matched the benchmark tier
               </small>
             </div>
 
@@ -2069,7 +2088,7 @@ export default function App() {
             <div className="batch-progress-card">
               <div className="batch-progress-head">
                 <div>
-                  <span>PROGRESS</span>
+                  <span>EXECUTION PROGRESS</span>
                   <strong>
                     {batchResults.length} / {selectedCases.length}
                   </strong>
@@ -2201,7 +2220,7 @@ export default function App() {
               <span>BASELINE CONTEXT</span>
               <strong>
                 {directModel.tier === "fast"
-                  ? "Fast/cheap baseline: routing may cost more when " + engineMeta.label + " escalates."
+                  ? "Fast baseline: harder tasks add simulated agent-loop, retry, token, and runtime overhead when this model is under-tiered."
                   : directModel.tier === "strong"
                     ? "Strong baseline: routing can save cost by avoiding this model on simpler tasks."
                     : "Balanced baseline: routing trades up or down by task difficulty."}
@@ -2211,14 +2230,14 @@ export default function App() {
             <div className="metrics-grid">
               <Metric
                 label="MODEL RUNTIME"
-                value={formatTime(batchTotals.directTimeTotal)}
-                sub="simulated baseline runtime"
+                value={formatRuntimeSeconds(batchTotals.directTimeTotal)}
+                sub={formatRuntimeContext(batchTotals.directTimeTotal)}
                 accent="direct"
               />
               <Metric
                 label="TOTAL COST"
                 value={formatMoney(batchTotals.directCostTotal)}
-                sub="cumulative direct cost"
+                sub="capability-adjusted cumulative cost"
                 accent="direct"
               />
             </div>
@@ -2299,7 +2318,7 @@ export default function App() {
                 </small>
               </div>
               <div className="summary-card">
-                <span>ROUTING MATCH</span>
+                <span>EXPECTED-TIER MATCH</span>
                 <strong>
                   {batchResults.length
                     ? (
@@ -2309,8 +2328,7 @@ export default function App() {
                     : "—"}
                 </strong>
                 <small>
-                  {batchTotals.routingMatches}/{batchResults.length} expected
-                  difficulty labels
+                  {batchTotals.routingMatches}/{batchResults.length} predicted tiers matched benchmark labels
                 </small>
               </div>
               <div className="summary-card">
@@ -2326,7 +2344,7 @@ export default function App() {
                   <span>FOUR-STRATEGY COST COMPARISON</span>
                   <strong>What if every prompt always used one fixed model?</strong>
                 </div>
-                <small>Same workloads · same token counts</small>
+                <small>Same prompts · under-tiered models incur simulated extra token/retry overhead</small>
               </div>
 
               <div className="strategy-card-grid">
