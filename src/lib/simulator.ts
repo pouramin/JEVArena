@@ -66,7 +66,8 @@ export function analyzePrompt(prompt: string): Analysis {
     "production incident",
     "consistency failure",
     "multiple services",
-    "multiple modules"
+    "multiple modules",
+    "multiple files"
   ];
 
   const mediumSignals = [
@@ -198,6 +199,86 @@ function tokenEstimate(prompt: string, complexity: Complexity): WorkloadProfile 
   };
 }
 
+const complexityRank: Record<Complexity, number> = {
+  Easy: 0,
+  Medium: 1,
+  Hard: 2
+};
+
+const tierRank: Record<Tier, number> = {
+  fast: 0,
+  balanced: 1,
+  strong: 2
+};
+
+type WorkloadAdjustment = {
+  inputMultiplier: number;
+  outputMultiplier: number;
+  runtimeMultiplier: number;
+  mismatchLevels: number;
+};
+
+/**
+ * Simulation-only capability mismatch model.
+ *
+ * A workload describes the amount of work when an appropriately sized model
+ * handles the task. If a fixed baseline is below the task's required tier,
+ * the simulator expands context/input, generated output and runtime to model
+ * extra agent loops, retries and re-reading of context.
+ *
+ * These multipliers are assumptions for the simulator, not vendor benchmark
+ * measurements. They intentionally apply only when the model is under-tiered.
+ */
+function workloadAdjustment(
+  model: Model,
+  complexity: Complexity
+): WorkloadAdjustment {
+  const mismatchLevels = Math.max(
+    0,
+    complexityRank[complexity] - tierRank[model.tier]
+  );
+
+  if (mismatchLevels >= 2) {
+    return {
+      inputMultiplier: 4,
+      outputMultiplier: 5,
+      runtimeMultiplier: 3.8,
+      mismatchLevels
+    };
+  }
+
+  if (mismatchLevels === 1) {
+    return {
+      inputMultiplier: 1.65,
+      outputMultiplier: 2,
+      runtimeMultiplier: 1.8,
+      mismatchLevels
+    };
+  }
+
+  return {
+    inputMultiplier: 1,
+    outputMultiplier: 1,
+    runtimeMultiplier: 1,
+    mismatchLevels: 0
+  };
+}
+
+function adaptWorkloadForModel(
+  workload: WorkloadProfile,
+  model: Model,
+  complexity: Complexity
+) {
+  const adjustment = workloadAdjustment(model, complexity);
+
+  return {
+    inputTokens: Math.round(workload.inputTokens * adjustment.inputMultiplier),
+    outputTokens: Math.round(workload.outputTokens * adjustment.outputMultiplier),
+    baseSeconds: workload.baseSeconds * adjustment.runtimeMultiplier,
+    mismatchLevels: adjustment.mismatchLevels
+  };
+}
+
 function modelCost(model: Model, inputTokens: number, outputTokens: number) {
   return (
     (inputTokens / 1_000_000) * model.inputPrice +
@@ -213,18 +294,28 @@ export function makeRunPlan(
 ): RunPlan {
   const analysis = analyzePrompt(prompt);
   const routeModel = anthropicModelForTier(analysis.tier);
-  const tokenUsage = workload ?? tokenEstimate(prompt, analysis.complexity);
+  const baseWorkload = workload ?? tokenEstimate(prompt, analysis.complexity);
+  const routeWorkload = adaptWorkloadForModel(
+    baseWorkload,
+    routeModel,
+    analysis.complexity
+  );
+  const directWorkload = adaptWorkloadForModel(
+    baseWorkload,
+    directModel,
+    analysis.complexity
+  );
 
   const routeModelCost = modelCost(
     routeModel,
-    tokenUsage.inputTokens,
-    tokenUsage.outputTokens
+    routeWorkload.inputTokens,
+    routeWorkload.outputTokens
   );
 
   const directModelCost = modelCost(
     directModel,
-    tokenUsage.inputTokens,
-    tokenUsage.outputTokens
+    directWorkload.inputTokens,
+    directWorkload.outputTokens
   );
 
   const jevInputTokens = Math.max(120, Math.ceil(prompt.length / 4) + 180);
@@ -251,30 +342,31 @@ export function makeRunPlan(
     decisionEngine === "laya"
       ? 0.0395
       : complexityBase + lengthPenalty + jitter;
-  const baseSeconds = tokenUsage.baseSeconds;
-
   return {
     route: {
       model: routeModel,
-      inputTokens: tokenUsage.inputTokens,
-      outputTokens: tokenUsage.outputTokens,
+      inputTokens: routeWorkload.inputTokens,
+      outputTokens: routeWorkload.outputTokens,
       modelCost: routeModelCost,
       jevCost,
       totalCost: routeModelCost + jevCost,
       decisionSeconds,
       totalSeconds: Math.max(
         1.8,
-        decisionSeconds + baseSeconds * routeModel.speed
+        decisionSeconds + routeWorkload.baseSeconds * routeModel.speed
       ),
       analysis
     },
     direct: {
       model: directModel,
-      inputTokens: tokenUsage.inputTokens,
-      outputTokens: tokenUsage.outputTokens,
+      inputTokens: directWorkload.inputTokens,
+      outputTokens: directWorkload.outputTokens,
       modelCost: directModelCost,
       totalCost: directModelCost,
-      totalSeconds: Math.max(1.8, baseSeconds * directModel.speed)
+      totalSeconds: Math.max(
+        1.8,
+        directWorkload.baseSeconds * directModel.speed
+      )
     }
   };
 }
