@@ -156,4 +156,12 @@ npm run build
 
 JEVArena is an educational and presentation-focused simulator. Simulated timing, cost, confidence, and routing output should not be interpreted as live provider measurements or guarantees. Published third-party reference values are labeled as such.
 
+For fixed-model comparisons, the benchmark uses a **capability-mismatch workload model**. If a task is above the selected model's tier, the simulator increases effective input tokens, output tokens, and runtime to represent extra agent loops, retries, and repeated context processing. These are transparent simulator assumptions rather than measured Anthropic/OpenAI performance data:
+
+- 1 tier under the task: input ×1.65, output ×2.0, runtime ×1.8
+- 2 tiers under the task: input ×4.0, output ×5.0, runtime ×3.8
+- Correct-tier or stronger model: no mismatch multiplier
+
+This prevents an unrealistic fixed lightweight baseline from receiving exactly the same token/runtime budget as a correctly routed model on substantially harder work.
+
 </div>
