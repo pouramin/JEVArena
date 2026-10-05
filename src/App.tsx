@@ -46,6 +46,12 @@ type BatchResult = {
   decisionTime: number;
   routedModelTime: number;
   directTime: number;
+  routedInputTokens: number;
+  routedOutputTokens: number;
+  directInputTokens: number;
+  directOutputTokens: number;
+  routeMismatchLevels: number;
+  directMismatchLevels: number;
   routingMatch: boolean;
 };
 
@@ -611,7 +617,13 @@ export default function App() {
     }
 
     const timer = window.setTimeout(() => {
-      const plan = makeRunPlan(item.prompt, directModel, item.workload, decisionEngine);
+      const plan = makeRunPlan(
+        item.prompt,
+        directModel,
+        item.workload,
+        decisionEngine,
+        item.level
+      );
       const routeCostDelta = percentageDelta(
         plan.direct.totalCost,
         plan.route.totalCost
@@ -636,6 +648,12 @@ export default function App() {
           plan.route.totalSeconds - plan.route.decisionSeconds
         ),
         directTime: plan.direct.totalSeconds,
+        routedInputTokens: plan.route.inputTokens,
+        routedOutputTokens: plan.route.outputTokens,
+        directInputTokens: plan.direct.inputTokens,
+        directOutputTokens: plan.direct.outputTokens,
+        routeMismatchLevels: plan.route.mismatchLevels,
+        directMismatchLevels: plan.direct.mismatchLevels,
         routingMatch: plan.route.analysis.complexity === item.level
       };
 
@@ -732,7 +750,8 @@ export default function App() {
             batchCurrent.prompt,
             directModel,
             batchCurrent.workload,
-            decisionEngine
+            decisionEngine,
+            batchCurrent.level
           )
         : null,
     [batchCurrent, directModel, decisionEngine]
@@ -852,10 +871,22 @@ export default function App() {
     };
   }, [batchResults]);
 
+  const fixedStrategyModels = useMemo(() => {
+    const providerModels = modelsForProvider(provider);
+    return {
+      haiku:
+        providerModels.find((model) => model.tier === "fast") ??
+        providerModels[0],
+      sonnet:
+        providerModels.find((model) => model.tier === "balanced") ??
+        providerModels[0],
+      opus:
+        providerModels.find((model) => model.tier === "strong") ??
+        providerModels[providerModels.length - 1]
+    };
+  }, [provider]);
+
   const strategyComparison = useMemo(() => {
-    const haiku = getModel("claude-haiku-4-5");
-    const sonnet = getModel("claude-sonnet-5-5");
-    const opus = getModel("claude-opus-5-5");
     const casesById = new Map(selectedCases.map((item) => [item.id, item]));
     const totals = { jev: 0, haiku: 0, sonnet: 0, opus: 0 };
     const points: StrategyPoint[] = [{ run: 0, ...totals }];
@@ -865,15 +896,38 @@ export default function App() {
       if (!item) return;
 
       totals.jev += result.routeCost;
-      totals.haiku += makeRunPlan(item.prompt, haiku, item.workload).direct.totalCost;
-      totals.sonnet += makeRunPlan(item.prompt, sonnet, item.workload).direct.totalCost;
-      totals.opus += makeRunPlan(item.prompt, opus, item.workload).direct.totalCost;
+      totals.haiku += makeRunPlan(
+        item.prompt,
+        fixedStrategyModels.haiku,
+        item.workload,
+        decisionEngine,
+        item.level
+      ).direct.totalCost;
+      totals.sonnet += makeRunPlan(
+        item.prompt,
+        fixedStrategyModels.sonnet,
+        item.workload,
+        decisionEngine,
+        item.level
+      ).direct.totalCost;
+      totals.opus += makeRunPlan(
+        item.prompt,
+        fixedStrategyModels.opus,
+        item.workload,
+        decisionEngine,
+        item.level
+      ).direct.totalCost;
 
       points.push({ run: index + 1, ...totals });
     });
 
     return { totals: { ...totals }, points };
-  }, [batchResults, selectedCases]);
+  }, [
+    batchResults,
+    selectedCases,
+    fixedStrategyModels,
+    decisionEngine
+  ]);
 
   const liveDistribution = useMemo(() => {
     const counts = { haiku: 0, sonnet: 0, opus: 0 };
@@ -898,11 +952,8 @@ export default function App() {
     return counts;
   }, [batchResults, batchPhase, batchCurrent, batchCurrentPlan]);
 
-  const distributionTargets = {
-    easy: batchScope === "Full" ? workloadMix.easy : batchScope === "Easy" ? selectedCases.length : 8,
-    medium: batchScope === "Full" ? workloadMix.medium : batchScope === "Medium" ? selectedCases.length : 8,
-    hard: batchScope === "Full" ? workloadMix.hard : batchScope === "Hard" ? selectedCases.length : 8
-  };
+  const liveDecisionCount =
+    liveDistribution.haiku + liveDistribution.sonnet + liveDistribution.opus;
 
   const levelSummaries = useMemo(() => {
     return (["Easy", "Medium", "Hard"] as const).map((level) => {
@@ -1041,9 +1092,13 @@ export default function App() {
       engineMeta.label + " Decision Latency ms",
       "Routed Model Runtime s",
       "Direct Model Runtime s",
-      "Routing Match",
-      "Input Tokens",
-      "Output Tokens",
+      "Expected-Tier Match",
+      "Routed Effective Input Tokens",
+      "Routed Effective Output Tokens",
+      "Direct Effective Input Tokens",
+      "Direct Effective Output Tokens",
+      "Route Mismatch Levels",
+      "Direct Mismatch Levels",
       "Suite Seed",
       "Prompt"
     ];
@@ -1065,8 +1120,12 @@ export default function App() {
       item.routedModelTime.toFixed(4),
       item.directTime.toFixed(4),
       item.routingMatch,
-      selectedCases.find((entry) => entry.id === item.caseId)?.workload.inputTokens ?? "",
-      selectedCases.find((entry) => entry.id === item.caseId)?.workload.outputTokens ?? "",
+      item.routedInputTokens,
+      item.routedOutputTokens,
+      item.directInputTokens,
+      item.directOutputTokens,
+      item.routeMismatchLevels,
+      item.directMismatchLevels,
       batchSeed,
       item.prompt
     ]);
@@ -1093,6 +1152,10 @@ export default function App() {
       batchTotals.routedModelTimeTotal.toFixed(4),
       batchTotals.directTimeTotal.toFixed(4),
       batchTotals.routingMatches + "/" + batchResults.length,
+      "",
+      "",
+      "",
+      "",
       "",
       "",
       batchSeed,
@@ -1314,12 +1377,14 @@ export default function App() {
                 <div className="decision-result" aria-live="polite">
                   <div className="decision-banner">
                     <div>
-                      <span className="micro-label">{engineMeta.decisionLabel}</span>
+                      <span className="micro-label">
+                        {"SIMULATED " + engineMeta.decisionLabel}
+                      </span>
                       <strong>{livePlan.route.analysis.complexity}</strong>
                     </div>
                     <div className="confidence-ring" style={confidenceStyle}>
                       <strong>{livePlan.route.analysis.confidence}%</strong>
-                      <span>confidence</span>
+                      <span>simulated confidence</span>
                     </div>
                   </div>
 
@@ -1402,8 +1467,14 @@ export default function App() {
             />
 
             <div className="lane-foot">
-              <span>Input {formatTokens(livePlan.route.inputTokens)}</span>
-              <span>Output {formatTokens(livePlan.route.outputTokens)}</span>
+              <span>
+                {livePlan.route.mismatchLevels ? "Effective input " : "Input "}
+                {formatTokens(livePlan.route.inputTokens)}
+              </span>
+              <span>
+                {livePlan.route.mismatchLevels ? "Effective output " : "Output "}
+                {formatTokens(livePlan.route.outputTokens)}
+              </span>
             </div>
           </article>
 
@@ -1636,8 +1707,14 @@ export default function App() {
             />
 
             <div className="lane-foot">
-              <span>Input {formatTokens(livePlan.direct.inputTokens)}</span>
-              <span>Output {formatTokens(livePlan.direct.outputTokens)}</span>
+              <span>
+                {livePlan.direct.mismatchLevels ? "Effective input " : "Input "}
+                {formatTokens(livePlan.direct.inputTokens)}
+              </span>
+              <span>
+                {livePlan.direct.mismatchLevels ? "Effective output " : "Output "}
+                {formatTokens(livePlan.direct.outputTokens)}
+              </span>
             </div>
           </article>
 
@@ -1763,7 +1840,7 @@ export default function App() {
             />
 
             <div className="batch-hero-stat">
-              <span>EXPECTED-TIER MATCH</span>
+              <span>SIMULATED TIER MATCH</span>
               <strong>
                 {batchResults.length
                   ? (
@@ -1780,7 +1857,7 @@ export default function App() {
             <div className="distribution-card">
               <div className="distribution-head">
                 <span>ROUTE DISTRIBUTION</span>
-                <strong>{batchResults.length} decisions</strong>
+                <strong>{liveDecisionCount} decisions</strong>
               </div>
               {[
                 ["Haiku", "Easy", liveDistribution.haiku, "easy"],
@@ -1788,13 +1865,10 @@ export default function App() {
                 ["Opus", "Hard", liveDistribution.opus, "hard"]
               ].map(([label, difficulty, count, tone]) => {
                 const value = Number(count);
-                const target =
-                  tone === "easy"
-                    ? distributionTargets.easy
-                    : tone === "medium"
-                      ? distributionTargets.medium
-                      : distributionTargets.hard;
-                const pct = Math.min((value / Math.max(1, target)) * 100, 100);
+                const pct = Math.min(
+                  (value / Math.max(1, selectedCases.length)) * 100,
+                  100
+                );
                 const isLive =
                   batchPhase === "running" &&
                   ((tone === "easy" && batchCurrentPlan?.route.model.name.includes("Haiku")) ||
@@ -2271,9 +2345,9 @@ export default function App() {
                 <span className="lane-kicker">SUITE VERDICT</span>
                 <h2>
                   {batchTotals.costDelta > 0.2
-                    ? engineMeta.label + " routing was cheaper than the direct baseline."
+                    ? engineMeta.label + " routing had lower simulated cost than the direct baseline."
                     : batchTotals.costDelta < -0.2
-                      ? engineMeta.label + " routing was more expensive than the direct baseline."
+                      ? engineMeta.label + " routing had higher simulated cost than the direct baseline."
                       : "Total simulated cost was effectively tied."}
                 </h2>
               </div>
@@ -2318,7 +2392,7 @@ export default function App() {
                 </small>
               </div>
               <div className="summary-card">
-                <span>EXPECTED-TIER MATCH</span>
+                <span>SIMULATED TIER MATCH</span>
                 <strong>
                   {batchResults.length
                     ? (
@@ -2328,7 +2402,7 @@ export default function App() {
                     : "—"}
                 </strong>
                 <small>
-                  {batchTotals.routingMatches}/{batchResults.length} predicted tiers matched benchmark labels
+                  {batchTotals.routingMatches}/{batchResults.length} simulated predictions matched benchmark labels · not a quality score
                 </small>
               </div>
               <div className="summary-card">
@@ -2342,9 +2416,16 @@ export default function App() {
               <div className="strategy-comparison-head">
                 <div>
                   <span>FOUR-STRATEGY COST COMPARISON</span>
-                  <strong>What if every prompt always used one fixed model?</strong>
+                  <strong>
+                    {"What if every prompt always used one fixed " +
+                      directModel.providerLabel +
+                      " model?"}
+                  </strong>
                 </div>
-                <small>Same prompts · under-tiered models incur simulated extra token/retry overhead</small>
+                <small>
+                  Cost-only comparison · same prompts · under-tiered models incur
+                  simulated extra token/retry overhead · quality not measured
+                </small>
               </div>
 
               <div className="strategy-card-grid">
@@ -2354,21 +2435,27 @@ export default function App() {
                   <small>{decisionEngine === "laya" ? "selected models · $0 decision API fee" : "router + selected models"}</small>
                 </div>
                 <div className="strategy-card strategy-haiku">
-                  <span>ALWAYS HAIKU</span>
+                  <span>
+                    {"ALWAYS " + fixedStrategyModels.haiku.compactName.toUpperCase()}
+                  </span>
                   <strong>{formatMoney(strategyComparison.totals.haiku)}</strong>
                   <small>
                     {deltaText(percentageDelta(strategyComparison.totals.haiku, strategyComparison.totals.jev), engineMeta.label)}
                   </small>
                 </div>
                 <div className="strategy-card strategy-sonnet">
-                  <span>ALWAYS SONNET</span>
+                  <span>
+                    {"ALWAYS " + fixedStrategyModels.sonnet.compactName.toUpperCase()}
+                  </span>
                   <strong>{formatMoney(strategyComparison.totals.sonnet)}</strong>
                   <small>
                     {deltaText(percentageDelta(strategyComparison.totals.sonnet, strategyComparison.totals.jev), engineMeta.label)}
                   </small>
                 </div>
                 <div className="strategy-card strategy-opus">
-                  <span>ALWAYS OPUS</span>
+                  <span>
+                    {"ALWAYS " + fixedStrategyModels.opus.compactName.toUpperCase()}
+                  </span>
                   <strong>{formatMoney(strategyComparison.totals.opus)}</strong>
                   <small>
                     {deltaText(percentageDelta(strategyComparison.totals.opus, strategyComparison.totals.jev), engineMeta.label)}
