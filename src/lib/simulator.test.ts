@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PROMPT_POOL, generateBenchmarkSuite } from "../data/benchmarks";
-import { MODELS, getModel } from "../data/models";
+import { MODELS, getModel, modelsForProvider } from "../data/models";
 import { analyzePrompt, makeRunPlan, type Complexity, type WorkloadProfile } from "./simulator";
 
 const representative: Record<Complexity, { prompt: string; workload: WorkloadProfile }> = {
@@ -175,6 +175,46 @@ describe("decision engines and route mapping", () => {
     const expected = (estimatedDecisionTokens / 1_000_000) * 0.042;
 
     expect(plan.route.jevCost).toBeCloseTo(expected, 12);
+  });
+});
+
+describe("model-family sanity", () => {
+  it("has exactly one fast, balanced, and strong model for each provider", () => {
+    for (const provider of ["anthropic", "openai"] as const) {
+      const models = modelsForProvider(provider);
+      expect(models).toHaveLength(3);
+      expect(models.filter((model) => model.tier === "fast")).toHaveLength(1);
+      expect(models.filter((model) => model.tier === "balanced")).toHaveLength(1);
+      expect(models.filter((model) => model.tier === "strong")).toHaveLength(1);
+    }
+  });
+
+  it("makes the matching tier the fastest simulated fit for each task level", () => {
+    const taskLevels: Array<[Complexity, "fast" | "balanced" | "strong"]> = [
+      ["Easy", "fast"],
+      ["Medium", "balanced"],
+      ["Hard", "strong"]
+    ];
+
+    for (const provider of ["anthropic", "openai"] as const) {
+      const models = modelsForProvider(provider);
+
+      for (const [level, expectedTier] of taskLevels) {
+        const runtimes = models.map((model) => ({
+          tier: model.tier,
+          seconds: makeRunPlan(
+            representative[level].prompt,
+            model,
+            representative[level].workload,
+            "jev",
+            level
+          ).direct.totalSeconds
+        }));
+        const fastest = [...runtimes].sort((a, b) => a.seconds - b.seconds)[0];
+
+        expect(fastest.tier, provider + " " + level).toBe(expectedTier);
+      }
+    }
   });
 });
 
