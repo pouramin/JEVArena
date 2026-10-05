@@ -460,11 +460,11 @@ function DecisionEngineSwitch({
 function CostRaceChart({
   points,
   totalRuns,
-  engineLabel
+  strategyLabels
 }: {
   points: StrategyPoint[];
   totalRuns: number;
-  engineLabel: string;
+  strategyLabels: Record<StrategyKey, string>;
 }) {
   const width = 720;
   const height = 230;
@@ -522,7 +522,7 @@ function CostRaceChart({
         {(["jev", "haiku", "sonnet", "opus"] as StrategyKey[]).map((key) => (
           <div key={key} className={`legend-item ${STRATEGY_META[key].className}`}>
             <span />
-            <strong>{key === "jev" ? engineLabel + " Route" : STRATEGY_META[key].label}</strong>
+            <strong>{strategyLabels[key]}</strong>
             <b>{formatMoney(points[points.length - 1]?.[key] ?? 0)}</b>
           </div>
         ))}
@@ -885,6 +885,13 @@ export default function App() {
         providerModels[providerModels.length - 1]
     };
   }, [provider]);
+
+  const strategyLabels: Record<StrategyKey, string> = {
+    jev: engineMeta.label + " Route",
+    haiku: "Always " + fixedStrategyModels.haiku.compactName,
+    sonnet: "Always " + fixedStrategyModels.sonnet.compactName,
+    opus: "Always " + fixedStrategyModels.opus.compactName
+  };
 
   const strategyComparison = useMemo(() => {
     const casesById = new Map(selectedCases.map((item) => [item.id, item]));
@@ -2174,7 +2181,11 @@ export default function App() {
               </div>
             </div>
 
-            <CostRaceChart points={strategyComparison.points} totalRuns={selectedCases.length} engineLabel={engineMeta.label} />
+            <CostRaceChart
+              points={strategyComparison.points}
+              totalRuns={selectedCases.length}
+              strategyLabels={strategyLabels}
+            />
 
             <div className="current-case">
               <span className="micro-label">
@@ -2463,7 +2474,11 @@ export default function App() {
                 </div>
               </div>
 
-              <CostRaceChart points={strategyComparison.points} totalRuns={selectedCases.length} engineLabel={engineMeta.label} />
+              <CostRaceChart
+              points={strategyComparison.points}
+              totalRuns={selectedCases.length}
+              strategyLabels={strategyLabels}
+            />
             </div>
 
             <div className="level-breakdown">
