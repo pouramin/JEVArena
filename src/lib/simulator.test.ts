@@ -58,6 +58,32 @@ describe("benchmark prompt classifier", () => {
   });
 });
 
+describe("Single Run workload profile", () => {
+  it("uses representative batch-midpoint workloads for Easy/Medium/Hard", () => {
+    const expected: Record<Complexity, [number, number, number]> = {
+      Easy: [3600, 725, 3.85],
+      Medium: [15000, 2850, 9.75],
+      Hard: [49000, 7500, 26]
+    };
+
+    for (const level of ["Easy", "Medium", "Hard"] as Complexity[]) {
+      const model =
+        level === "Easy"
+          ? getModel("claude-haiku-4-5")
+          : level === "Medium"
+            ? getModel("claude-sonnet-5-5")
+            : getModel("claude-opus-5-5");
+      const plan = makeRunPlan(representative[level].prompt, model);
+      expect(plan.direct.inputTokens, level).toBe(expected[level][0]);
+      expect(plan.direct.outputTokens, level).toBe(expected[level][1]);
+      expect(
+        plan.direct.totalSeconds / model.runtimeFactor,
+        level
+      ).toBeCloseTo(expected[level][2], 8);
+    }
+  });
+});
+
 describe("capability mismatch model", () => {
   it("uses benchmark ground truth even when the router under-classifies", () => {
     const haiku = getModel("claude-haiku-4-5");
