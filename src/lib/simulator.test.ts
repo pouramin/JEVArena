@@ -121,8 +121,72 @@ describe("capability mismatch model", () => {
     expect(plan.route.model.id).toBe("claude-haiku-4-5");
     expect(plan.route.mismatchLevels).toBe(2);
     expect(plan.direct.mismatchLevels).toBe(2);
-    expect(plan.direct.inputTokens).toBe(80_000);
-    expect(plan.direct.outputTokens).toBe(20_000);
+    expect(plan.direct.inputTokens).toBe(100_000);
+    expect(plan.direct.outputTokens).toBe(24_000);
+  });
+
+  it("makes a one-tier-under Anthropic model more expensive than the matching tier on the same workload", () => {
+    const sonnet = getModel("claude-sonnet-5-5");
+    const opus = getModel("claude-opus-5-5");
+    const workload = representative.Hard.workload;
+
+    const sonnetPlan = makeRunPlan(
+      representative.Hard.prompt,
+      sonnet,
+      workload,
+      "jev",
+      "Hard"
+    ).direct;
+    const opusPlan = makeRunPlan(
+      representative.Hard.prompt,
+      opus,
+      workload,
+      "jev",
+      "Hard"
+    ).direct;
+
+    expect(sonnetPlan.mismatchLevels).toBe(1);
+    expect(sonnetPlan.inputTokens).toBe(Math.round(workload.inputTokens * 2.15));
+    expect(sonnetPlan.outputTokens).toBe(Math.round(workload.outputTokens * 2.35));
+    expect(sonnetPlan.totalCost).toBeGreaterThan(opusPlan.totalCost);
+    expect(sonnetPlan.totalSeconds).toBeGreaterThan(opusPlan.totalSeconds);
+  });
+
+  it("keeps a hard-heavy 8/8/84 Anthropic suite cheaper on matching Opus than fixed Sonnet", () => {
+    const suite = generateBenchmarkSuite("Full", 1878279936, {
+      easy: 8,
+      medium: 8,
+      hard: 84
+    });
+    const sonnet = getModel("claude-sonnet-5-5");
+    const opus = getModel("claude-opus-5-5");
+
+    const sonnetTotal = suite.reduce(
+      (sum, item) =>
+        sum +
+        makeRunPlan(
+          item.prompt,
+          sonnet,
+          item.workload,
+          "jev",
+          item.level
+        ).direct.totalCost,
+      0
+    );
+    const opusTotal = suite.reduce(
+      (sum, item) =>
+        sum +
+        makeRunPlan(
+          item.prompt,
+          opus,
+          item.workload,
+          "jev",
+          item.level
+        ).direct.totalCost,
+      0
+    );
+
+    expect(sonnetTotal).toBeGreaterThan(opusTotal);
   });
 
   it("applies no mismatch multiplier to correct-tier or stronger models", () => {
