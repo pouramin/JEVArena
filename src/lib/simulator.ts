@@ -163,10 +163,10 @@ export function analyzePrompt(prompt: string): Analysis {
         value:
           hardCount > 0
             ? "High-risk signals"
-            : easyCount > 0
-              ? "Bounded task"
-              : mediumCount > 0
-                ? "Multi-step task"
+            : mediumCount > 0
+              ? "Multi-step task"
+              : easyCount > 0
+                ? "Bounded task"
                 : "Low complexity"
       }
     ]
@@ -368,10 +368,8 @@ export function makeRunPlan(
       jevCost,
       totalCost: routeModelCost + jevCost,
       decisionSeconds,
-      totalSeconds: Math.max(
-        1.8,
-        decisionSeconds + routeWorkload.baseSeconds * routeModel.runtimeFactor
-      ),
+      totalSeconds:
+        decisionSeconds + routeWorkload.baseSeconds * routeModel.runtimeFactor,
       mismatchLevels: routeWorkload.mismatchLevels,
       analysis
     },
@@ -381,10 +379,7 @@ export function makeRunPlan(
       outputTokens: directWorkload.outputTokens,
       modelCost: directModelCost,
       totalCost: directModelCost,
-      totalSeconds: Math.max(
-        1.8,
-        directWorkload.baseSeconds * directModel.runtimeFactor
-      ),
+      totalSeconds: directWorkload.baseSeconds * directModel.runtimeFactor,
       mismatchLevels: directWorkload.mismatchLevels
     }
   };
