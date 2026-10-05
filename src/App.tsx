@@ -115,7 +115,7 @@ const ENGINE_META: Record<
     decisionLabel: "LAYA DECISION",
     decisionCostLabel: "LAYA DECISION COST",
     profileKicker: "PUBLISHED PROFILE",
-    profileValue: "39.5 ms · Tesla T4 · $0 API fee",
+    profileValue: "39.5 ms · Tesla T4 · English checkpoint · $0 API fee",
     profileNote: "BENCHMARKS.md · self-hosted; hardware/electricity excluded · routing choice simulated"
   }
 };
@@ -1443,7 +1443,7 @@ export default function App() {
                 )}
                 sub={
                   decisionEngine === "laya"
-                    ? "published single-question · Tesla T4"
+                    ? "published single-question · Tesla T4 · English checkpoint"
                     : "prompt received → route selected"
                 }
                 accent="jev"
@@ -1650,7 +1650,7 @@ export default function App() {
 
             <p className="method-note">
               {decisionEngine === "laya"
-                ? "Laya routing output is simulated. Decision latency uses the project's published 39.5 ms single-question Tesla T4 benchmark; API fee is modeled as $0 self-hosted, excluding hardware and electricity."
+                ? "Laya routing output is simulated. Decision latency uses the project's published 39.5 ms single-question Tesla T4 English-checkpoint benchmark; API fee is modeled as $0 self-hosted, excluding hardware and electricity."
                 : "Simulation mode uses configured list prices and capability-adjusted workload estimates. Under-tiered fixed models may consume extra simulated tokens and runtime. JEV timing remains illustrative until Live mode is connected."}
             </p>
           </article>
