@@ -297,6 +297,14 @@ export function createBenchmarkSeed() {
   return Math.floor(Math.random() * 2_000_000_000) + 1;
 }
 
+export function resolveBatchSeed(
+  currentSeed: number,
+  regenerate: boolean,
+  seedFactory: () => number = createBenchmarkSeed
+) {
+  return regenerate ? seedFactory() : currentSeed;
+}
+
 export function generateBenchmarkSuite(
   scope: BenchmarkScope,
   seed = createBenchmarkSeed(),
