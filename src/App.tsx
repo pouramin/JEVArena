@@ -1099,7 +1099,7 @@ export default function App() {
       engineMeta.label + " Decision Latency ms",
       "Routed Model Runtime s",
       "Direct Model Runtime s",
-      "Expected-Tier Match",
+      "Simulated Tier Match",
       "Routed Effective Input Tokens",
       "Routed Effective Output Tokens",
       "Direct Effective Input Tokens",
