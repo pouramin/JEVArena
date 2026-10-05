@@ -102,13 +102,13 @@ npm run build
 
 مسیر Router فعلاً سطح‌های **Fast / Balanced / Strong** رو به **Claude Haiku / Sonnet / Opus** نگاشت می‌کنه. برای Direct baseline می‌شه مدل‌های Anthropic یا OpenAI رو انتخاب کرد.
 
-اگر یک مدل از سطح Task ضعیف‌تر باشه، برای شبیه‌سازی Loop، Retry و پردازش مجدد Context، مصرف موثر و زمان افزایش پیدا می‌کنه:
+اگر یک مدل از سطح Task ضعیف‌تر باشه، شبیه‌ساز هزینه و زمان را بر اساس **کار مؤثر لازم برای رسیدن به Completion** تنظیم می‌کنه؛ یعنی Rework، Agent loop و تلاش‌های تکراریِ فرضی داخل Effective workload می‌رن:
 
-- یک Tier ضعیف‌تر: Input ×1.65، Output ×2.0، Runtime ×1.8
-- دو Tier ضعیف‌تر: Input ×4.0، Output ×5.0، Runtime ×3.8
+- یک Tier ضعیف‌تر: Input ×2.15، Output ×2.35، Runtime ×2.2
+- دو Tier ضعیف‌تر: Input ×5.0، Output ×6.0، Runtime ×5.5
 - مدل هم‌سطح یا قوی‌تر: بدون Penalty
 
-این ضرایب **فرض شبیه‌ساز** هستن و Benchmark واقعی Anthropic یا OpenAI نیستن. عدد Effective Input/Output هم مصرف تجمعی شبیه‌سازی‌شده در چند Retry/Agent loop رو نشان می‌ده، نه اینکه الزاماً یک Request با همین تعداد Context token ارسال شده باشه.
+این ضرایب **فرض شبیه‌ساز** هستن و Benchmark یا Success rate واقعی Anthropic یا OpenAI نیستن. عدد Effective Input/Output هم مصرف تجمعی شبیه‌سازی‌شده برای Completion-adjusted workload رو نشان می‌ده، نه اینکه الزاماً یک Request با همین تعداد Context token ارسال شده باشه.
 
 برای JEV، قیمت منتشرشده‌ی TypeSafe یعنی $0.042 برای هر 1M Input token استفاده می‌شه و اندازه‌ی ورودی Decision از Prompt به‌علاوه‌ی یک سربار کوچک شبیه‌سازی‌شده تخمین زده می‌شه. برای Laya، انتخاب Route شبیه‌سازی‌شده است؛ زمان 39.5 ms از پروفایل منتشرشده‌ی Single-question روی Tesla T4 گرفته شده و هزینه‌ی API برای Self-hosting برابر $0 نمایش داده می‌شه؛ هزینه‌ی Hardware و برق داخلش نیست.
 
@@ -211,15 +211,15 @@ The routed path currently maps simulated **Fast / Balanced / Strong** decisions 
 
 #### Capability-mismatch workload model
 
-For fixed-model comparisons, if a task is above the selected model's tier, JEVArena increases effective input tokens, output tokens, and runtime to represent extra agent loops, retries, and repeated context processing:
+For fixed-model comparisons, if a task is above the selected model's tier, JEVArena uses a completion-adjusted effective workload to represent rework, agent loops, and repeated attempts needed to reach a completion-equivalent result:
 
-- 1 tier under the task: input ×1.65, output ×2.0, runtime ×1.8
-- 2 tiers under the task: input ×4.0, output ×5.0, runtime ×3.8
+- 1 tier under the task: input ×2.15, output ×2.35, runtime ×2.2
+- 2 tiers under the task: input ×5.0, output ×6.0, runtime ×5.5
 - Correct-tier or stronger model: no mismatch multiplier
 
 These are **simulator assumptions**, not measured Anthropic/OpenAI performance data. “Effective input/output” represents cumulative simulated billable usage across retries/agent loops, not a claim that one request contains that many context tokens.
 
-Runtime factors are also simulation profiles rather than vendor benchmarks. The app models relative execution time using configured factors for each model; use the numbers for visual comparison, not as real latency guarantees.
+These mismatch multipliers and runtime factors are simulation profiles rather than measured provider success rates or vendor benchmarks. The app models effective work and relative execution time for comparison; use the numbers as simulator assumptions, not real latency or quality guarantees.
 
 #### Decision-layer assumptions
 
