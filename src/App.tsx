@@ -2307,10 +2307,10 @@ export default function App() {
               <span>BASELINE CONTEXT</span>
               <strong>
                 {directModel.tier === "fast"
-                  ? "Fast baseline: harder tasks add simulated agent-loop, retry, token, and runtime overhead when this model is under-tiered."
+                  ? "Fast baseline: harder tasks add simulated agent-loop, retry, token, and runtime overhead when this model is under-tiered. Task success/quality is not measured."
                   : directModel.tier === "strong"
                     ? "Strong baseline: routing can save cost by avoiding this model on simpler tasks."
-                    : "Balanced baseline: routing trades up or down by task difficulty."}
+                    : "Balanced baseline: routing trades up or down by task difficulty. Task success/quality is not measured."}
               </strong>
             </div>
 
