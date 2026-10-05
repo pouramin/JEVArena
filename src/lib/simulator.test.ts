@@ -1,6 +1,14 @@
-import { describe, expect, it } from "vitest";
-import { PROMPT_POOL, generateBenchmarkSuite } from "../data/benchmarks";
+import { describe, expect, it, vi } from "vitest";
+import {
+  PROMPT_POOL,
+  generateBenchmarkSuite,
+  resolveBatchSeed
+} from "../data/benchmarks";
 import { MODELS, getModel, modelsForProvider } from "../data/models";
+import {
+  costDeltaDisposition,
+  routeTimelineEvents
+} from "./presentation";
 import { analyzePrompt, makeRunPlan, type Complexity, type WorkloadProfile } from "./simulator";
 
 const representative: Record<Complexity, { prompt: string; workload: WorkloadProfile }> = {
@@ -40,6 +48,16 @@ describe("benchmark pool integrity", () => {
     expect(suite.filter((item) => item.level === "Medium")).toHaveLength(8);
     expect(suite.filter((item) => item.level === "Hard")).toHaveLength(84);
   });
+
+  it("keeps the displayed seed for a rerun and regenerates only for a new suite", () => {
+    const seedFactory = vi.fn(() => 999);
+
+    expect(resolveBatchSeed(123, false, seedFactory)).toBe(123);
+    expect(seedFactory).not.toHaveBeenCalled();
+
+    expect(resolveBatchSeed(123, true, seedFactory)).toBe(999);
+    expect(seedFactory).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("benchmark prompt classifier", () => {
@@ -55,6 +73,9 @@ describe("benchmark prompt classifier", () => {
     );
     expect(result.complexity).toBe("Medium");
     expect(result.tier).toBe("balanced");
+    expect(
+      result.signals.find((signal) => signal.label === "Routing basis")?.value
+    ).toBe("Multi-step task");
   });
 });
 
@@ -118,6 +139,39 @@ describe("capability mismatch model", () => {
     expect(plan.direct.mismatchLevels).toBe(0);
     expect(plan.direct.inputTokens).toBe(workload.inputTokens);
     expect(plan.direct.outputTokens).toBe(workload.outputTokens);
+  });
+
+  it("does not clamp valid fast runtimes to a UI animation floor", () => {
+    const luna = getModel("gpt-6-luna");
+    const haiku = getModel("claude-haiku-4-5");
+    const workload = {
+      inputTokens: 1200,
+      outputTokens: 250,
+      baseSeconds: 2.2
+    };
+
+    const direct = makeRunPlan(
+      representative.Easy.prompt,
+      luna,
+      workload,
+      "jev",
+      "Easy"
+    ).direct;
+    const layaRoute = makeRunPlan(
+      representative.Easy.prompt,
+      haiku,
+      workload,
+      "laya",
+      "Easy"
+    ).route;
+
+    expect(direct.totalSeconds).toBeCloseTo(2.2 * luna.runtimeFactor, 8);
+    expect(layaRoute.totalSeconds).toBeCloseTo(
+      0.0395 + 2.2 * haiku.runtimeFactor,
+      8
+    );
+    expect(direct.totalSeconds).toBeLessThan(1.8);
+    expect(layaRoute.totalSeconds).toBeLessThan(1.8);
   });
 
   it("keeps cost and runtime positive and increases workload severity for every configured model", () => {
@@ -259,6 +313,36 @@ describe("configured standard list prices", () => {
       expect([model.inputPrice, model.outputPrice], model.id).toEqual(
         expected[model.id]
       );
+    }
+  });
+});
+
+
+describe("presentation consistency", () => {
+  it("uses the same 0.2% tie band for cost verdicts and labels", () => {
+    expect(costDeltaDisposition(0.2)).toBe("tie");
+    expect(costDeltaDisposition(-0.2)).toBe("tie");
+    expect(costDeltaDisposition(0.21)).toBe("route");
+    expect(costDeltaDisposition(-0.21)).toBe("direct");
+  });
+
+  it("keeps routed timeline events chronological through model completion", () => {
+    const events = routeTimelineEvents({
+      totalSeconds: 1.6235,
+      decisionSeconds: 0.0395,
+      modelName: "Haiku 4.5",
+      engineLabel: "Laya"
+    });
+
+    expect(events[0]).toEqual({ label: "Prompt received", at: 0 });
+    expect(events[events.length - 1]).toEqual({
+      label: "Response complete",
+      at: 1.6235
+    });
+    expect(events.some((event) => event.label === "Haiku 4.5 started")).toBe(true);
+
+    for (let index = 1; index < events.length; index += 1) {
+      expect(events[index].at).toBeGreaterThanOrEqual(events[index - 1].at);
     }
   });
 });
