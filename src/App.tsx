@@ -15,11 +15,17 @@ import {
   GENERATED_POOL_NOTE,
   createBenchmarkSeed,
   generateBenchmarkSuite,
+  resolveBatchSeed,
   suiteSize,
   type BenchmarkScope,
   type WorkloadMix
 } from "./data/benchmarks";
 import { makeRunPlan, type DecisionEngine, type RunPlan } from "./lib/simulator";
+import {
+  costDeltaDisposition,
+  percentageDelta,
+  routeTimelineEvents
+} from "./lib/presentation";
 
 type Phase = "idle" | "countdown" | "running" | "done";
 type Expectation = "Auto" | "Easy" | "Medium" | "Hard";
@@ -116,7 +122,7 @@ const ENGINE_META: Record<
     decisionCostLabel: "LAYA DECISION COST",
     profileKicker: "PUBLISHED PROFILE",
     profileValue: "39.5 ms · Tesla T4 · English checkpoint · $0 API fee",
-    profileNote: "BENCHMARKS.md · self-hosted; hardware/electricity excluded · routing choice simulated"
+    profileNote: "Source: Laya BENCHMARKS.md · self-hosted; hardware/electricity excluded · routing choice simulated"
   }
 };
 
@@ -169,20 +175,19 @@ function formatTokens(value: number) {
 }
 
 function deltaWinner(delta: number, routeLabel = "JEV Route") {
-  if (delta > 0.2) return routeLabel;
-  if (delta < -0.2) return "Direct";
+  const disposition = costDeltaDisposition(delta);
+  if (disposition === "route") return routeLabel;
+  if (disposition === "direct") return "Direct";
   return "Tie";
 }
 
-function percentageDelta(baseline: number, candidate: number) {
-  if (!baseline) return 0;
-  return ((baseline - candidate) / baseline) * 100;
-}
-
 function deltaText(delta: number, engineLabel = "JEV") {
-  if (Math.abs(delta) < 0.05) return "0.0% · tied";
+  const disposition = costDeltaDisposition(delta);
+  if (disposition === "tie") return "0.0% · tied";
   return Math.abs(delta).toFixed(1) + "% · " +
-    (delta > 0 ? engineLabel + " cheaper" : engineLabel + " more expensive");
+    (disposition === "route"
+      ? engineLabel + " cheaper"
+      : engineLabel + " more expensive");
 }
 
 function formatLatency(seconds: number) {
@@ -270,14 +275,15 @@ function Timeline({
   const decision = kind === "route" ? route.decisionSeconds : 0;
   const events =
     kind === "route"
-      ? [
-          { label: "Prompt received", at: 0.04 },
-          { label: engineLabel + " analyzing", at: Math.max(0.02, decision * 0.45) },
-          { label: "Routing decision ready", at: decision }
-        ]
+      ? routeTimelineEvents({
+          totalSeconds: total,
+          decisionSeconds: decision,
+          modelName: route.model.compactName,
+          engineLabel
+        })
       : [
-          { label: "Prompt received", at: 0.04 },
-          { label: "Direct model started", at: 0.18 },
+          { label: "Prompt received", at: 0 },
+          { label: "Direct model started", at: 0 },
           { label: "Generating response", at: total * 0.42 },
           { label: "Response complete", at: total }
         ];
@@ -726,15 +732,22 @@ export default function App() {
 
   const routeSaving =
     percentageDelta(livePlan.direct.totalCost, livePlan.route.totalCost);
+  const routeCostOutcome = costDeltaDisposition(routeSaving);
+  const routeDeltaDisplay =
+    routeCostOutcome === "tie"
+      ? "0.0%"
+      : (routeCostOutcome === "route" ? "−" : "+") +
+        Math.abs(routeSaving).toFixed(1) +
+        "%";
   const sameModel = livePlan.route.model.id === livePlan.direct.model.id;
 
   const verdictHeadline = sameModel
     ? decisionEngine === "laya"
       ? "Same model. Laya adds decision latency, but no API fee."
       : "Same model. JEV added only routing overhead."
-    : routeSaving > 0.2
+    : routeCostOutcome === "route"
       ? engineMeta.label + " routing used less money on this task."
-      : routeSaving < -0.2
+      : routeCostOutcome === "direct"
         ? "The direct path used less money on this task."
         : "Cost was effectively tied on this task.";
 
@@ -1002,7 +1015,9 @@ export default function App() {
 
   const startBatch = () => {
     if (batchPhase === "running" || !workloadValid) return;
-    setBatchSeed(createBenchmarkSeed());
+    // Run exactly the suite/seed currently shown in the UI. A new seed is
+    // generated only through explicit suite-changing actions.
+    setBatchSeed((seed) => resolveBatchSeed(seed, false));
     setBatchResults([]);
     setBatchIndex(0);
     setBatchPhase("running");
@@ -1015,7 +1030,7 @@ export default function App() {
   };
 
   const shuffleBatch = () => {
-    setBatchSeed(createBenchmarkSeed());
+    setBatchSeed((seed) => resolveBatchSeed(seed, true));
     setBatchPhase("idle");
     setBatchIndex(0);
     setBatchResults([]);
@@ -1027,7 +1042,7 @@ export default function App() {
     if (preset !== "Custom") {
       setWorkloadMix({ ...WORKLOAD_PRESETS[preset] });
     }
-    setBatchSeed(createBenchmarkSeed());
+    setBatchSeed((seed) => resolveBatchSeed(seed, true));
     resetBatch();
   };
 
@@ -1088,7 +1103,7 @@ export default function App() {
       "Title",
       "Expected Level",
       engineMeta.label + " Predicted Level",
-      "Confidence %",
+      "Simulated Confidence %",
       "Routed Model",
       "Direct Model",
       engineMeta.label + " Decision Cost USD",
@@ -1196,7 +1211,7 @@ export default function App() {
           <div className="brand-mark">J</div>
           <div>
             <div className="brand-name">JEVArena</div>
-            <div className="brand-sub">Visual model-routing benchmark</div>
+            <div className="brand-sub">Visual model-routing simulator</div>
           </div>
         </div>
 
@@ -1448,6 +1463,25 @@ export default function App() {
                 }
                 accent="jev"
               />
+              <Metric
+                label="MODEL RUNTIME"
+                value={formatTime(
+                  phase === "idle" ||
+                    phase === "countdown" ||
+                    !decisionVisible
+                    ? 0
+                    : Math.min(
+                        Math.max(0, elapsed - livePlan.route.decisionSeconds),
+                        Math.max(
+                          0,
+                          livePlan.route.totalSeconds -
+                            livePlan.route.decisionSeconds
+                        )
+                      )
+                )}
+                sub="selected routed model only"
+                accent="jev"
+              />
             </div>
 
             <div className="cost-breakdown-grid">
@@ -1471,7 +1505,7 @@ export default function App() {
               kind="route"
               elapsed={phase === "running" || phase === "done" ? elapsed : 0}
               plan={livePlan}
-              done={decisionVisible}
+              done={routeDone}
               engineLabel={engineMeta.label}
             />
 
@@ -1732,7 +1766,7 @@ export default function App() {
           >
             <div className="results-heading">
               <div>
-                <span className="lane-kicker">BENCHMARK VERDICT</span>
+                <span className="lane-kicker">SIMULATION VERDICT</span>
                 <h2>{verdictHeadline}</h2>
               </div>
               <div className="result-status">
@@ -1748,6 +1782,11 @@ export default function App() {
                 <b>{formatMoney(livePlan.route.totalCost)}</b>
                 <small>
                   {engineMeta.label} decision {formatLatency(livePlan.route.decisionSeconds)}
+                  {" · model " +
+                    formatRuntimeSeconds(
+                      livePlan.route.totalSeconds -
+                        livePlan.route.decisionSeconds
+                    )}
                 </small>
               </div>
 
@@ -1762,15 +1801,13 @@ export default function App() {
 
               <div className="saving-card">
                 <span>COST DELTA</span>
-                <strong>
-                  {(routeSaving >= 0 ? "−" : "+") +
-                    Math.abs(routeSaving).toFixed(1) +
-                    "%"}
-                </strong>
+                <strong>{routeDeltaDisplay}</strong>
                 <small>
-                  {routeSaving >= 0
+                  {routeCostOutcome === "route"
                     ? "with " + engineMeta.label + " routing"
-                    : "routing overhead"}
+                    : routeCostOutcome === "direct"
+                      ? "routing overhead"
+                      : "effectively tied"}
                 </small>
               </div>
 
@@ -1943,6 +1980,15 @@ export default function App() {
               />
             </div>
 
+            <div className="metrics-grid single-router-metrics">
+              <Metric
+                label="ROUTED MODEL RUNTIME"
+                value={formatRuntimeSeconds(batchTotals.routedModelTimeTotal)}
+                sub={formatRuntimeContext(batchTotals.routedModelTimeTotal)}
+                accent="jev"
+              />
+            </div>
+
             <div className="cost-breakdown-grid batch-cost-breakdown">
               <div className="cost-breakdown-item jev-only">
                 <span>{engineMeta.decisionCostLabel}</span>
@@ -1989,7 +2035,7 @@ export default function App() {
                       <div className="routing-prompt">
                         <strong>{item.title}</strong>
                         <small>
-                          {item.predicted} · {item.confidence}% · {formatLatency(item.decisionTime)}
+                          {item.predicted} · simulated confidence {item.confidence}% · {formatLatency(item.decisionTime)}
                         </small>
                       </div>
                       <span className="routing-arrow">→</span>
@@ -2017,7 +2063,7 @@ export default function App() {
 
             <div className="batch-detail-list">
               <div>
-                <span>Avg. confidence</span>
+                <span>Avg. simulated confidence</span>
                 <strong>
                   {batchResults.length
                     ? batchTotals.confidenceAverage.toFixed(1) + "%"
@@ -2094,7 +2140,7 @@ export default function App() {
                       disabled={batchPhase === "running"}
                       onClick={() => {
                         setBatchScope(scope);
-                        setBatchSeed(createBenchmarkSeed());
+                        setBatchSeed((seed) => resolveBatchSeed(seed, true));
                         resetBatch();
                       }}
                     >
@@ -2357,9 +2403,9 @@ export default function App() {
               <div>
                 <span className="lane-kicker">SUITE VERDICT</span>
                 <h2>
-                  {batchTotals.costDelta > 0.2
+                  {costDeltaDisposition(batchTotals.costDelta) === "route"
                     ? engineMeta.label + " routing had lower simulated cost than the direct baseline."
-                    : batchTotals.costDelta < -0.2
+                    : costDeltaDisposition(batchTotals.costDelta) === "direct"
                       ? engineMeta.label + " routing had higher simulated cost than the direct baseline."
                       : "Total simulated cost was effectively tied."}
                 </h2>
@@ -2515,7 +2561,7 @@ export default function App() {
                     <th>Case</th>
                     <th>Expected</th>
                     <th>{engineMeta.label}</th>
-                    <th>Confidence</th>
+                    <th>Simulated confidence</th>
                     <th>Route</th>
                     <th>Cost Δ</th>
                     <th>{engineMeta.label} latency</th>
@@ -2557,7 +2603,7 @@ export default function App() {
       )}
 
       <footer className="footer">
-        <span>JEVArena · simulation-first benchmark UI</span>
+        <span>JEVArena · simulation-first routing UI</span>
         <span>Configured list-rate comparison · Oct 2026</span>
       </footer>
     </main>
