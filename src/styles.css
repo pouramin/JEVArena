@@ -2034,16 +2034,26 @@ textarea:disabled {
   border: 1px solid var(--border);
 }
 
-.match-pill.matched {
+.match-pill.level-easy {
   color: #8fd9b7;
   border-color: rgba(111, 211, 167, 0.2);
   background: rgba(111, 211, 167, 0.07);
 }
 
-.match-pill.missed {
-  color: #f1c27d;
-  border-color: rgba(229, 185, 78, 0.2);
-  background: rgba(229, 185, 78, 0.07);
+.match-pill.level-medium {
+  color: #f1b76c;
+  border-color: rgba(223, 143, 62, 0.24);
+  background: rgba(223, 143, 62, 0.08);
+}
+
+.match-pill.level-hard {
+  color: #f18486;
+  border-color: rgba(223, 95, 99, 0.24);
+  background: rgba(223, 95, 99, 0.08);
+}
+
+.match-pill.is-mismatch {
+  border-style: dashed;
 }
 
 .presentation .workspace-switch {
