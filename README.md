@@ -85,6 +85,42 @@ npm run build
 
 این پروژه یک ابزار آموزشی و نمایشی است. زمان‌ها، هزینه‌ها و نتایج شبیه‌سازی نباید به‌عنوان اندازه‌گیری زنده‌ی APIها یا تضمین عملکرد واقعی مدل‌ها تفسیر شوند. هرجا از داده‌ی منتشرشده‌ی شخص ثالث استفاده شده، منبع آن در رابط یا مستندات مشخص شده است.
 
+### منطق هزینه و زمان شبیه‌ساز
+
+پروفایل فعلی از نرخ استاندارد و بدون Cache برای API مستقیم استفاده می‌کند:
+
+| Model | Input / 1M | Output / 1M |
+| --- | ---: | ---: |
+| Claude Haiku 4.5 | $1.00 | $5.00 |
+| Claude Sonnet 5.5 | $2.00 | $10.00 |
+| Claude Opus 5.5 | $4.00 | $20.00 |
+| GPT-6 Luna | $0.10 | $0.50 |
+| GPT-6.1 Sol | $2.00 | $10.00 |
+| GPT-6 Astra | $10.00 | $50.00 |
+
+تخفیف Prompt caching، Batch، حالت Fast/Priority، هزینه‌ی Regional processing و قیمت‌های قراردادی داخل شبیه‌ساز حساب نمی‌شن.
+
+مسیر Router فعلاً سطح‌های **Fast / Balanced / Strong** رو به **Claude Haiku / Sonnet / Opus** نگاشت می‌کنه. برای Direct baseline می‌شه مدل‌های Anthropic یا OpenAI رو انتخاب کرد.
+
+اگر یک مدل از سطح Task ضعیف‌تر باشه، برای شبیه‌سازی Loop، Retry و پردازش مجدد Context، مصرف موثر و زمان افزایش پیدا می‌کنه:
+
+- یک Tier ضعیف‌تر: Input ×1.65، Output ×2.0، Runtime ×1.8
+- دو Tier ضعیف‌تر: Input ×4.0، Output ×5.0، Runtime ×3.8
+- مدل هم‌سطح یا قوی‌تر: بدون Penalty
+
+این ضرایب **فرض شبیه‌ساز** هستن و Benchmark واقعی Anthropic یا OpenAI نیستن. عدد Effective Input/Output هم مصرف تجمعی شبیه‌سازی‌شده در چند Retry/Agent loop رو نشان می‌ده، نه اینکه الزاماً یک Request با همین تعداد Context token ارسال شده باشه.
+
+برای JEV، قیمت منتشرشده‌ی TypeSafe یعنی $0.042 برای هر 1M Input token استفاده می‌شه و اندازه‌ی ورودی Decision از Prompt به‌علاوه‌ی یک سربار کوچک شبیه‌سازی‌شده تخمین زده می‌شه. برای Laya، انتخاب Route شبیه‌سازی‌شده است؛ زمان 39.5 ms از پروفایل منتشرشده‌ی Single-question روی Tesla T4 گرفته شده و هزینه‌ی API برای Self-hosting برابر $0 نمایش داده می‌شه؛ هزینه‌ی Hardware و برق داخلش نیست.
+
+### این Benchmark چه چیزی را ثابت نمی‌کند؟
+
+- کیفیت و Success rate واقعی مدل‌ها در Simulation اندازه‌گیری نمی‌شه.
+- ارزان‌تر بودن یک مدل سبک به معنی بهتر بودنش نیست؛ ممکنه فقط هزینه‌ی شبیه‌سازی‌شده‌ی کمتری داشته باشه.
+- بخش **Simulated Tier Match** فقط تطابق Heuristic محلی با Labelهای Easy / Medium / Hard است و Accuracy واقعی JEV یا Laya نیست.
+- استخر 1,500 پرامپتی عمداً از Templateهایی ساخته شده که به همین سه سطح مربوط می‌شن.
+
+قبل از انتشار Build وب و Windows، Regression testها هر 1,500 پرامپت تولیدشده، هر 6 مدل، منطق Capability mismatch، قیمت‌ها، هزینه‌ی JEV/Laya و روند منطقی Cost/Runtime رو بررسی می‌کنن.
+
 </div>
 
 ---
@@ -156,12 +192,47 @@ npm run build
 
 JEVArena is an educational and presentation-focused simulator. Simulated timing, cost, confidence, and routing output should not be interpreted as live provider measurements or guarantees. Published third-party reference values are labeled as such.
 
-For fixed-model comparisons, the benchmark uses a **capability-mismatch workload model**. If a task is above the selected model's tier, the simulator increases effective input tokens, output tokens, and runtime to represent extra agent loops, retries, and repeated context processing. These are transparent simulator assumptions rather than measured Anthropic/OpenAI performance data:
+#### Pricing profile
+
+The simulator uses **standard, uncached, direct-API list rates** configured for the October 2026 profile:
+
+| Model | Input / 1M | Output / 1M |
+| --- | ---: | ---: |
+| Claude Haiku 4.5 | $1.00 | $5.00 |
+| Claude Sonnet 5.5 | $2.00 | $10.00 |
+| Claude Opus 5.5 | $4.00 | $20.00 |
+| GPT-6 Luna | $0.10 | $0.50 |
+| GPT-6.1 Sol | $2.00 | $10.00 |
+| GPT-6 Astra | $10.00 | $50.00 |
+
+Prompt caching, batch discounts, fast/priority tiers, regional premiums, and provider-specific negotiated pricing are not modeled.
+
+The routed path currently maps simulated **Fast / Balanced / Strong** decisions to **Claude Haiku / Sonnet / Opus**. The direct baseline can be selected from either the Anthropic or OpenAI model family.
+
+#### Capability-mismatch workload model
+
+For fixed-model comparisons, if a task is above the selected model's tier, JEVArena increases effective input tokens, output tokens, and runtime to represent extra agent loops, retries, and repeated context processing:
 
 - 1 tier under the task: input ×1.65, output ×2.0, runtime ×1.8
 - 2 tiers under the task: input ×4.0, output ×5.0, runtime ×3.8
 - Correct-tier or stronger model: no mismatch multiplier
 
-This prevents an unrealistic fixed lightweight baseline from receiving exactly the same token/runtime budget as a correctly routed model on substantially harder work.
+These are **simulator assumptions**, not measured Anthropic/OpenAI performance data. “Effective input/output” represents cumulative simulated billable usage across retries/agent loops, not a claim that one request contains that many context tokens.
+
+Runtime factors are also simulation profiles rather than vendor benchmarks. The app models relative execution time using configured factors for each model; use the numbers for visual comparison, not as real latency guarantees.
+
+#### Decision-layer assumptions
+
+- **JEV:** uses TypeSafe's published $0.042 per 1M input-token rate. Decision input size is estimated from the prompt plus a small simulated schema/routing overhead; output-token cost is modeled as $0.
+- **Laya:** routing choice is simulated. Decision latency uses the published 39.5 ms single-question Tesla T4 English-checkpoint profile and API fee is modeled as $0 for self-hosting; hardware/electricity are excluded.
+
+#### What the benchmark does not prove
+
+- Quality and task-success rate are **not measured** in Simulation mode.
+- A cheaper fixed lightweight model is not automatically “better”; it may simply have a lower simulated cost while quality is unknown.
+- **Simulated Tier Match** only reports agreement between the local routing heuristic and the benchmark's generated Easy/Medium/Hard labels. It is not JEV or Laya accuracy.
+- The 1,500-prompt benchmark pool is intentionally generated from templates that map to those three tiers.
+
+Regression tests now verify all 1,500 generated prompts, all six configured model profiles, mismatch behavior, pricing constants, Laya/JEV decision-cost rules, and monotonic cost/runtime invariants before the web and Windows builds are published.
 
 </div>
