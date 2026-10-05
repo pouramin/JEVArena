@@ -230,11 +230,11 @@ type WorkloadAdjustment = {
  *
  * A workload describes the amount of work when an appropriately sized model
  * handles the task. If a fixed baseline is below the task's required tier,
- * the simulator expands context/input, generated output and runtime to model
- * extra agent loops, retries and re-reading of context.
+ * the simulator expands effective input/output and runtime to model the
+ * additional rework needed to reach a completion-equivalent result.
  *
- * These multipliers are assumptions for the simulator, not vendor benchmark
- * measurements. They intentionally apply only when the model is under-tiered.
+ * These multipliers are simulator assumptions, not vendor benchmark
+ * measurements. Quality itself remains unmeasured.
  */
 function workloadAdjustment(
   model: Model,
@@ -247,18 +247,18 @@ function workloadAdjustment(
 
   if (mismatchLevels >= 2) {
     return {
-      inputMultiplier: 4,
-      outputMultiplier: 5,
-      runtimeMultiplier: 3.8,
+      inputMultiplier: 5,
+      outputMultiplier: 6,
+      runtimeMultiplier: 5.5,
       mismatchLevels
     };
   }
 
   if (mismatchLevels === 1) {
     return {
-      inputMultiplier: 1.65,
-      outputMultiplier: 2,
-      runtimeMultiplier: 1.8,
+      inputMultiplier: 2.15,
+      outputMultiplier: 2.35,
+      runtimeMultiplier: 2.2,
       mismatchLevels
     };
   }
