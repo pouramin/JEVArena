@@ -364,7 +364,7 @@ export function makeRunPlan(
       decisionSeconds,
       totalSeconds: Math.max(
         1.8,
-        decisionSeconds + routeWorkload.baseSeconds * routeModel.speed
+        decisionSeconds + routeWorkload.baseSeconds * routeModel.runtimeFactor
       ),
       mismatchLevels: routeWorkload.mismatchLevels,
       analysis
@@ -377,7 +377,7 @@ export function makeRunPlan(
       totalCost: directModelCost,
       totalSeconds: Math.max(
         1.8,
-        directWorkload.baseSeconds * directModel.speed
+        directWorkload.baseSeconds * directModel.runtimeFactor
       ),
       mismatchLevels: directWorkload.mismatchLevels
     }
