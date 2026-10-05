@@ -114,16 +114,19 @@ export function analyzePrompt(prompt: string): Analysis {
     tier = "strong";
     confidence = hardCount >= 2 ? 95 : 91;
     probabilities = { fast: 3, balanced: 10, strong: 87 };
-  } else if (easyCount >= 1 && hardCount === 0) {
+  } else if (mediumCount >= 1 || prompt.length > 260) {
+    // Medium signals take precedence over easy-edit phrases. This avoids
+    // classifying a task as Easy just because it also says "fix a typo" or
+    // "rename one local" while asking for tests/refactoring behavior.
+    complexity = "Medium";
+    tier = "balanced";
+    confidence = mediumCount >= 2 ? 92 : 89;
+    probabilities = { fast: 10, balanced: 81, strong: 9 };
+  } else if (easyCount >= 1) {
     complexity = "Easy";
     tier = "fast";
     confidence = easyCount >= 2 ? 97 : 93;
     probabilities = { fast: 90, balanced: 8, strong: 2 };
-  } else if (mediumCount >= 1 || prompt.length > 260) {
-    complexity = "Medium";
-    tier = "balanced";
-    confidence = 89;
-    probabilities = { fast: 10, balanced: 81, strong: 9 };
   } else {
     complexity = "Easy";
     tier = "fast";
@@ -147,7 +150,7 @@ export function analyzePrompt(prompt: string): Analysis {
               : "Low"
       },
       {
-        label: "Context depth",
+        label: "Prompt depth",
         value:
           prompt.length > 500
             ? "High"
