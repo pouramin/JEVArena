@@ -10,10 +10,12 @@ export type Model = {
   tier: Tier;
   inputPrice: number;
   outputPrice: number;
-  speed: number;
+  runtimeFactor: number;
   descriptor: string;
 };
 
+// Standard uncached direct-API list-rate profile used by the simulator.
+// Prices are USD per 1M tokens. Cache/batch/fast/regional pricing is excluded.
 export const MODELS: Model[] = [
   {
     id: "claude-haiku-4-5",
@@ -24,7 +26,7 @@ export const MODELS: Model[] = [
     tier: "fast",
     inputPrice: 1,
     outputPrice: 5,
-    speed: 0.72,
+    runtimeFactor: 0.72,
     descriptor: "Fast, focused work"
   },
   {
@@ -36,7 +38,7 @@ export const MODELS: Model[] = [
     tier: "balanced",
     inputPrice: 2,
     outputPrice: 10,
-    speed: 1,
+    runtimeFactor: 1,
     descriptor: "Balanced coding & agents"
   },
   {
@@ -48,7 +50,7 @@ export const MODELS: Model[] = [
     tier: "strong",
     inputPrice: 4,
     outputPrice: 20,
-    speed: 1.32,
+    runtimeFactor: 1.32,
     descriptor: "Deep, high-stakes work"
   },
   {
@@ -60,7 +62,7 @@ export const MODELS: Model[] = [
     tier: "fast",
     inputPrice: 0.1,
     outputPrice: 0.5,
-    speed: 0.7,
+    runtimeFactor: 0.7,
     descriptor: "Efficient, high-volume work"
   },
   {
@@ -72,7 +74,7 @@ export const MODELS: Model[] = [
     tier: "balanced",
     inputPrice: 2,
     outputPrice: 10,
-    speed: 0.98,
+    runtimeFactor: 0.98,
     descriptor: "Balanced complex work"
   },
   {
@@ -84,7 +86,7 @@ export const MODELS: Model[] = [
     tier: "strong",
     inputPrice: 10,
     outputPrice: 50,
-    speed: 1.42,
+    runtimeFactor: 1.42,
     descriptor: "Most demanding work"
   }
 ];
