@@ -1337,9 +1337,11 @@ export default function App() {
                   ? "READY"
                   : phase === "countdown"
                     ? "ARMED"
-                    : decisionVisible
+                    : routeDone
                       ? "DONE"
-                      : "LIVE"}
+                      : decisionVisible
+                        ? "MODEL RUNNING"
+                        : "DECIDING"}
               </span>
             </div>
 
