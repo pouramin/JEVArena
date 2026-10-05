@@ -149,7 +149,7 @@ function formatRuntimeSeconds(seconds: number) {
 
 function formatRuntimeContext(seconds: number) {
   if (seconds < 60) {
-    return "capability-adjusted cumulative simulated runtime";
+    return "completion-adjusted cumulative simulated runtime";
   }
 
   const minutes = Math.floor(seconds / 60);
@@ -159,7 +159,7 @@ function formatRuntimeContext(seconds: number) {
     minutes +
     "m " +
     remainder.toFixed(1) +
-    "s · capability-adjusted cumulative runtime"
+    "s · completion-adjusted cumulative runtime"
   );
 }
 
@@ -1685,7 +1685,7 @@ export default function App() {
             <p className="method-note">
               {decisionEngine === "laya"
                 ? "Laya routing output is simulated. Decision latency uses the project's published 39.5 ms single-question Tesla T4 English-checkpoint benchmark; API fee is modeled as $0 self-hosted, excluding hardware and electricity."
-                : "Simulation mode uses configured list prices and capability-adjusted workload estimates. Under-tiered fixed models may consume extra simulated tokens and runtime. JEV timing remains illustrative until Live mode is connected."}
+                : "Simulation mode uses configured list prices and completion-adjusted workload estimates. Under-tiered fixed models include simulated rework: one tier under uses input ×2.15, output ×2.35, runtime ×2.2; two tiers under uses ×5, ×6, ×5.5. Quality is not measured, and JEV timing remains illustrative until Live mode is connected."}
             </p>
           </article>
 
@@ -2353,10 +2353,10 @@ export default function App() {
               <span>BASELINE CONTEXT</span>
               <strong>
                 {directModel.tier === "fast"
-                  ? "Fast baseline: harder tasks add simulated agent-loop, retry, token, and runtime overhead when this model is under-tiered. Task success/quality is not measured."
+                  ? "Fast baseline: under-tiered work is completion-adjusted. One tier under uses input ×2.15, output ×2.35, runtime ×2.2; two tiers under uses ×5, ×6, ×5.5. Quality is not measured."
                   : directModel.tier === "strong"
-                    ? "Strong baseline: routing can save cost by avoiding this model on simpler tasks."
-                    : "Balanced baseline: routing trades up or down by task difficulty. Task success/quality is not measured."}
+                    ? "Strong baseline: no under-tier penalty. Simpler tasks keep their base workload; quality is not measured."
+                    : "Balanced baseline: Hard tasks are one tier above this model, so effective work uses input ×2.15, output ×2.35, runtime ×2.2. Quality is not measured."}
               </strong>
             </div>
 
@@ -2370,7 +2370,7 @@ export default function App() {
               <Metric
                 label="TOTAL COST"
                 value={formatMoney(batchTotals.directCostTotal)}
-                sub="capability-adjusted cumulative cost"
+                sub="completion-adjusted cumulative cost"
                 accent="direct"
               />
             </div>
@@ -2482,8 +2482,10 @@ export default function App() {
                   </strong>
                 </div>
                 <small>
-                  Cost-only comparison · same prompts · under-tiered models incur
-                  simulated extra token/retry overhead · quality not measured
+                  Cost-only comparison · same prompts · under-tiered models use
+                  completion-adjusted effective work · 1 tier: input ×2.15,
+                  output ×2.35, runtime ×2.2 · 2 tiers: ×5 / ×6 / ×5.5 ·
+                  quality not measured
                 </small>
               </div>
 
