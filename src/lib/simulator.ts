@@ -28,6 +28,7 @@ export type LanePlan = {
   modelCost: number;
   totalCost: number;
   totalSeconds: number;
+  mismatchLevels: number;
 };
 
 export type RoutePlan = LanePlan & {
@@ -42,9 +43,6 @@ export type RunPlan = {
 };
 
 const JEV_INPUT_PRICE = 0.042;
-
-const includesAny = (source: string, words: string[]) =>
-  words.some((word) => source.includes(word));
 
 export function analyzePrompt(prompt: string): Analysis {
   const source = prompt.toLowerCase();
@@ -290,20 +288,30 @@ export function makeRunPlan(
   prompt: string,
   directModel: Model,
   workload?: WorkloadProfile,
-  decisionEngine: DecisionEngine = "jev"
+  decisionEngine: DecisionEngine = "jev",
+  requiredComplexity?: Complexity
 ): RunPlan {
   const analysis = analyzePrompt(prompt);
   const routeModel = anthropicModelForTier(analysis.tier);
-  const baseWorkload = workload ?? tokenEstimate(prompt, analysis.complexity);
+
+  // In benchmark mode the suite label is the ground-truth workload tier.
+  // This matters when the simulated router misclassifies a task: an
+  // under-tier route must still pay the capability-mismatch overhead.
+  // In free-form Single Run there is no external ground truth, so the
+  // router's own analysis remains the workload tier.
+  const workloadComplexity = requiredComplexity ?? analysis.complexity;
+  const baseWorkload =
+    workload ?? tokenEstimate(prompt, workloadComplexity);
+
   const routeWorkload = adaptWorkloadForModel(
     baseWorkload,
     routeModel,
-    analysis.complexity
+    workloadComplexity
   );
   const directWorkload = adaptWorkloadForModel(
     baseWorkload,
     directModel,
-    analysis.complexity
+    workloadComplexity
   );
 
   const routeModelCost = modelCost(
@@ -355,6 +363,7 @@ export function makeRunPlan(
         1.8,
         decisionSeconds + routeWorkload.baseSeconds * routeModel.speed
       ),
+      mismatchLevels: routeWorkload.mismatchLevels,
       analysis
     },
     direct: {
@@ -366,7 +375,8 @@ export function makeRunPlan(
       totalSeconds: Math.max(
         1.8,
         directWorkload.baseSeconds * directModel.speed
-      )
+      ),
+      mismatchLevels: directWorkload.mismatchLevels
     }
   };
 }
