@@ -2580,8 +2580,9 @@ export default function App() {
                       <td>
                         <span
                           className={
-                            "match-pill " +
-                            (item.routingMatch ? "matched" : "missed")
+                            "match-pill level-" +
+                            item.predicted.toLowerCase() +
+                            (item.routingMatch ? "" : " is-mismatch")
                           }
                         >
                           {item.predicted}
