@@ -173,28 +173,34 @@ export function analyzePrompt(prompt: string): Analysis {
   };
 }
 
-const outputByComplexity: Record<Complexity, number> = {
-  Easy: 520,
-  Medium: 1150,
-  Hard: 2100
+// Single Run uses the midpoint of the Auto Benchmark workload bands so a
+// prompt does not suddenly become much cheaper merely because it is tested
+// outside the batch runner.
+const representativeInputByComplexity: Record<Complexity, number> = {
+  Easy: 3600,
+  Medium: 15000,
+  Hard: 49000
 };
 
-const contextByComplexity: Record<Complexity, number> = {
-  Easy: 1800,
-  Medium: 5200,
-  Hard: 11200
+const outputByComplexity: Record<Complexity, number> = {
+  Easy: 725,
+  Medium: 2850,
+  Hard: 7500
 };
 
 const secondsByComplexity: Record<Complexity, number> = {
-  Easy: 2.9,
-  Medium: 5.15,
-  Hard: 8.25
+  Easy: 3.85,
+  Medium: 9.75,
+  Hard: 26
 };
 
 function tokenEstimate(prompt: string, complexity: Complexity): WorkloadProfile {
   const promptTokens = Math.max(80, Math.ceil(prompt.length / 4));
   return {
-    inputTokens: promptTokens + contextByComplexity[complexity],
+    inputTokens: Math.max(
+      promptTokens,
+      representativeInputByComplexity[complexity]
+    ),
     outputTokens: outputByComplexity[complexity],
     baseSeconds: secondsByComplexity[complexity]
   };
