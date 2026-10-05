@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PROMPT_POOL } from "../data/benchmarks";
+import { PROMPT_POOL, generateBenchmarkSuite } from "../data/benchmarks";
 import { MODELS, getModel } from "../data/models";
 import { analyzePrompt, makeRunPlan, type Complexity, type WorkloadProfile } from "./simulator";
 
@@ -17,6 +17,30 @@ const representative: Record<Complexity, { prompt: string; workload: WorkloadPro
     workload: { inputTokens: 49000, outputTokens: 7500, baseSeconds: 26 }
   }
 };
+
+describe("benchmark pool integrity", () => {
+  it("contains 1,500 unique prompts split 500/500/500", () => {
+    expect(PROMPT_POOL).toHaveLength(1500);
+    expect(new Set(PROMPT_POOL.map((item) => item.variantKey)).size).toBe(1500);
+    expect(PROMPT_POOL.filter((item) => item.level === "Easy")).toHaveLength(500);
+    expect(PROMPT_POOL.filter((item) => item.level === "Medium")).toHaveLength(500);
+    expect(PROMPT_POOL.filter((item) => item.level === "Hard")).toHaveLength(500);
+  });
+
+  it("honors a 100-case custom mix without replacement", () => {
+    const suite = generateBenchmarkSuite("Full", 123456789, {
+      easy: 8,
+      medium: 8,
+      hard: 84
+    });
+
+    expect(suite).toHaveLength(100);
+    expect(new Set(suite.map((item) => item.variantKey)).size).toBe(100);
+    expect(suite.filter((item) => item.level === "Easy")).toHaveLength(8);
+    expect(suite.filter((item) => item.level === "Medium")).toHaveLength(8);
+    expect(suite.filter((item) => item.level === "Hard")).toHaveLength(84);
+  });
+});
 
 describe("benchmark prompt classifier", () => {
   it("matches every generated benchmark label", () => {
